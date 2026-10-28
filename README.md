@@ -54,6 +54,12 @@ Bugün harcama yaptın mı?
 | 📆 **Maaş günü** | `/maasgunu 8` — maaş gününü ayarla (8'inde hatırlatır) |
 | 🔔 **Fiyat alarmı** | `/alarm THYAO 300 ust` |
 | ⚡ **Ani hareket alarmı** | %5+ günlük hareket → anında bildirim (otomatik) |
+| 🛑 **Stop-loss takibi** | Pozisyonlar otomatik izlenir, zarar kes seviyesi geçilince uyarır |
+| 📊 **Temel analiz** | `/temel THYAO` — F/K, P/B, kârlılık, borç, temettü, büyüme skoru |
+| 🧪 **Backtest** | `/backtest THYAO` — strateji geçmişte kazandırır mıydı? (veriyle) |
+| 📉 **Risk analizi** | `/risk` — konsantrasyon, volatilite, çeşitlendirme skoru |
+| 🌍 **Makro panel** | `/makro` — döviz, altın, petrol, BIST, S&P, BTC tek ekranda |
+| 📰 **Haber takibi** | `/haber THYAO` — son haber başlıkları |
 | 💼 **Portföy** | `/ekle`, `/sat`, `/portfoy`, `/islemler` (FIFO kar/zarar) |
 | 💰 **Maaş & bütçe** | `/maas`, `/yatirim`, `/harcama`, `/butce`, `/rapor` |
 
