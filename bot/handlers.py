@@ -66,6 +66,7 @@ from services import (
     inline,
     macro,
     market_data as md,
+    menu,
     nlp,
     performance,
     picker,
@@ -142,10 +143,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 <b>Kişisel finans asistanına</b> hoş geldin!\n\n"
         "📌 <b>Ben neler yapıyorum?</b>\n"
         "• 🧭 2 dakikada sana özel plan kuruyorum (/basla)\n"
-        "• 💰 Maaşını otomatik bölüyorum (gider / harcama / birikim)\n"
+        "• [PARA] Maaşını otomatik bölüyorum (gider / harcama / birikim)\n"
         "• 🌅 Her sabah hatırlatıyorum, 🌙 akşam soru soruyorum\n"
         "• 🎉 Maaş gününde dağılımı söylüyorum\n"
-        "• 📊 BIST + ABD + Kripto takip ve sade dil analiz\n\n"
+        "• [GRAFIK] BIST + ABD + Kripto takip ve sade dil analiz\n\n"
         f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
         "Botu aktifleştirmek için bu ID'yi .env dosyasındaki "
         "ALLOWED_USER_IDS'e ekleyin ve botu yeniden başlatın.\n\n"
@@ -157,7 +158,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 <b>Komut Rehberi</b>\n\n"
-        "<b>📊 Piyasa</b>\n"
+        "<b>[GRAFIK] Piyasa</b>\n"
         "/hisse SYMBOL — anlık fiyat + analiz (örn: THYAO, AAPL, BTC)\n"
         "/analiz SYMBOL — detaylı teknik analiz\n"
         "/dolar — güncel döviz kurları\n\n"
@@ -174,7 +175,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/sat SYMBOL ADET FIYAT — satış kaydet\n"
         "/portfoy — portföy özeti ve kar/zarar\n"
         "/islemler — işlem geçmişi\n\n"
-        "<b>💰 Maaş & Bütçe</b>\n"
+        "<b>[PARA] Maaş & Bütçe</b>\n"
         "/maas TUTAR — aylık maaşını tanımla\n"
         "/yatirim TUTAR — aylık yatırım hedefi\n"
         "/harcama TUTAR KATEGORİ — gider ekle\n"
@@ -203,21 +204,21 @@ async def send_quote(update: Update, arg: str) -> bool:
 
     open_status = "🟢 Açık" if md.is_market_open(sym) else "🔴 Kapalı"
     lines = [
-        f"📊 <b>{sym}</b> — {name}",
+        f"[GRAFIK] <b>{sym}</b> — {name}",
         f"💱 Para: {cur} | 🕐 Piyasa: {open_status} ({md.market_hours_text(sym)})",
         "",
-        f"💰 <b>Fiyat: {fmt_money(quote['price'], cur)}</b>",
+        f"[PARA] <b>Fiyat: {fmt_money(quote['price'], cur)}</b>",
     ]
     if quote["change"] >= 0:
-        lines.append(f"📈 Günlük: <b>+{quote['change']:,.2f}</b> (+{quote['change_pct']:.2f}%)")
+        lines.append(f"[ARTIS] Günlük: <b>+{quote['change']:,.2f}</b> (+{quote['change_pct']:.2f}%)")
     else:
-        lines.append(f"📉 Günlük: <b>{quote['change']:,.2f}</b> ({quote['change_pct']:.2f}%)")
+        lines.append(f"[DUSUS] Günlük: <b>{quote['change']:,.2f}</b> ({quote['change_pct']:.2f}%)")
     lines.append(f"📅 Gün içi: {fmt_money(quote['low'], cur)} – {fmt_money(quote['high'], cur)}")
 
     if analysis:
         lines += [
             "",
-            "📈 <b>Teknik Özet</b>",
+            "[ARTIS] <b>Teknik Özet</b>",
             f"• RSI(14): {analysis['rsi']:.1f} → {ind.rsi_label(analysis['rsi'])}",
             f"• MACD: {'pozitif' if analysis['macd_hist'] >= 0 else 'negatif'} ({'güçleniyor' if analysis['macd_hist'] > analysis['macd_hist_prev'] else 'zayıflıyor'})",
             f"• Trend: {ind.trend_label(analysis['price'], analysis['sma20'], analysis['sma50'])}",
@@ -280,13 +281,13 @@ async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔬 <b>Detaylı Analiz: {sym}</b> — {name}",
         "",
         f"💵 Fiyat: {fmt_money(a['price'], cur)}",
-        f"📉 RSI(14): <b>{a['rsi']:.1f}</b> ({ind.rsi_label(a['rsi'])})",
-        f"📊 MACD: {a['macd']:.2f} | Sinyal: {a['macd_signal']:.2f} | Hist: {a['macd_hist']:.2f}",
+        f"[DUSUS] RSI(14): <b>{a['rsi']:.1f}</b> ({ind.rsi_label(a['rsi'])})",
+        f"[GRAFIK] MACD: {a['macd']:.2f} | Sinyal: {a['macd_signal']:.2f} | Hist: {a['macd_hist']:.2f}",
         f"📐 SMA20: {fmt_money(a['sma20'], cur)} | SMA50: {fmt_money(a['sma50'], cur)}",
         f"📏 Bollinger: {fmt_money(a['bb_lower'], cur)} – {fmt_money(a['bb_upper'], cur)}",
         f"🧱 Destek: {fmt_money(a['support'], cur)} | Direnç: {fmt_money(a['resistance'], cur)}",
         f"🌊 ATR(14): {fmt_money(a['atr'], cur)} (volatilite)",
-        f"📦 Hacim: {vol_line}",
+        f"[DIGER] Hacim: {vol_line}",
         f"🕐 Piyasa: {md.market_hours_text(sym)}",
     ]
     if fund_line:
@@ -294,7 +295,7 @@ async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines += [
         "",
         f"🖼️ Büyük görsel için: <code>/grafik {sym}</code>",
-        f"📊 Geçmiş performans testi: <code>/backtest {sym}</code>",
+        f"[GRAFIK] Geçmiş performans testi: <code>/backtest {sym}</code>",
     ]
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
@@ -347,14 +348,14 @@ async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Tarama sonucu alınamadı. Veri kaynağında sorun olabilir.")
         return
 
-    lines = ["🎯 <b>Takip Listesi Sinyalleri</b>\n"]
+    lines = ["[HEDEF] <b>Takip Listesi Sinyalleri</b>\n"]
     for r in results:
         direction = f"({r['change_pct']:+.2f}%)" if "change_pct" in r else ""
-        stop_emoji = "🛑" if r["score"] >= 1 else "🎯"
+        stop_emoji = "🛑" if r["score"] >= 1 else "[HEDEF]"
         lines.append(
             f"{r['emoji']} <b>{r['symbol']}</b> — {r['signal']} (skor {r['score']:+d})\n"
-            f"   💰 {fmt_money(r['price'], r['currency'])} {direction}\n"
-            f"   📉 RSI {r['rsi']:.0f} | {r['trend']}\n"
+            f"   [PARA] {fmt_money(r['price'], r['currency'])} {direction}\n"
+            f"   [DUSUS] RSI {r['rsi']:.0f} | {r['trend']}\n"
             f"   {stop_emoji} Stop: {fmt_money(r['stop'], r['currency'])} | Hedef: {fmt_money(r['target'], r['currency'])}"
         )
     lines.append(DISCLAIMER)
@@ -442,10 +443,10 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("")
     for cur, total in pf["total_by_currency"].items():
-        lines.append(f"📊 {cur} toplam: <b>{fmt_money(total, cur)}</b>")
+        lines.append(f"[GRAFIK] {cur} toplam: <b>{fmt_money(total, cur)}</b>")
 
     grand, base = await to_thread(_grand_total, pf["total_by_currency"])
-    lines.append(f"\n💰 Genel toplam: <b>{fmt_money(grand, base)}</b>")
+    lines.append(f"\n[PARA] Genel toplam: <b>{fmt_money(grand, base)}</b>")
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
 
@@ -501,7 +502,7 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
     await update.message.reply_text(
         f"✅ <b>{verb} kaydedildi</b>\n"
         f"📌 {sym}: {qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}\n"
-        f"💰 Nakit: {new_balance:,.2f} ₺"
+        f"[PARA] Nakit: {new_balance:,.2f} ₺"
     )
 
 
@@ -577,7 +578,7 @@ async def cmd_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_balance = await to_thread(add_cash, update.effective_user.id, -amount)
     await update.message.reply_text(
         f"✅ Harcama kaydedildi: <b>{fmt_money(amount, 'TRY')}</b> — {category}\n"
-        f"💰 Kalan nakit: {new_balance:,.2f} ₺"
+        f"[PARA] Kalan nakit: {new_balance:,.2f} ₺"
     )
 
 
@@ -597,12 +598,12 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📋 <b>Bütçe Durumu</b>",
         f"📅 Ay: {rep['month']}",
         f"💵 Maaş: {fmt_money(rep['salary'], 'TRY')}",
-        f"🎯 Yatırım hedefi: {fmt_money(rep['invest_target'], 'TRY')} "
+        f"[HEDEF] Yatırım hedefi: {fmt_money(rep['invest_target'], 'TRY')} "
         f"({rep['invest_pct']:.0f}% tamamlandı)",
-        f"📈 Bu ay yatırılan: <b>{fmt_money(rep['invested'], 'TRY')}</b>",
+        f"[ARTIS] Bu ay yatırılan: <b>{fmt_money(rep['invested'], 'TRY')}</b>",
         f"🧾 Toplam harcama: {fmt_money(rep['total_expense'], 'TRY')} ({rep['n_expenses']} adet)",
         "",
-        f"💰 Kalan: <b>{fmt_money(rep['remaining'], 'TRY')}</b>",
+        f"[PARA] Kalan: <b>{fmt_money(rep['remaining'], 'TRY')}</b>",
         f"💾 Tasarruf oranı: <b>%{rep['savings_rate']:.1f}</b>",
     ]
     await update.message.reply_text("\n".join(lines))
@@ -618,7 +619,7 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📑 <b>Aylık Rapor</b>",
         f"📅 {rep['month']}",
         "",
-        "<b>💰 Bütçe</b>",
+        "<b>[PARA] Bütçe</b>",
         f"• Maaş: {fmt_money(rep['salary'], 'TRY')}",
         f"• Harcamalar: {fmt_money(rep['total_expense'], 'TRY')}",
     ]
@@ -729,9 +730,9 @@ def _btn(text: str, data: str) -> InlineKeyboardButton:
 async def cmd_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup(
         [
-            [_btn("📊 Durumum", "menu:status")],
-            [_btn("💰 Eldeki nakit", "menu:cash")],
-            [_btn("🎯 Otomatik hisse seç", "menu:pick")],
+            [_btn("[GRAFIK] Durumum", "menu:status")],
+            [_btn("[PARA] Eldeki nakit", "menu:cash")],
+            [_btn("[HEDEF] Otomatik hisse seç", "menu:pick")],
             [_btn("⚖️ Ne alayım / satayım", "menu:rebalance")],
             [_btn("📌 Bugün ne yapmalıyım?", "menu:today")],
             [_btn("📋 Planım", "menu:plan")],
@@ -747,13 +748,13 @@ async def cmd_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     plan_row = get_user_plan(user.id)
-    lines = ["📊 <b>Durumun</b>\n"]
+    lines = ["[GRAFIK] <b>Durumun</b>\n"]
     if plan_row:
         plan = assistant.plan_from_json(plan_row["plan"])
         lines.append(assistant.emergency_status(plan, plan_row["emergency_saved"] or 0))
         rep = budget.get_month_report(user.id)
         lines.append(f"🧾 Bu ay kalan bütçe: <b>{rep['remaining']:,.2f} ₺</b>")
-        lines.append(f"📈 Yatırım: {rep['invested']:,.2f} / {rep['invest_target']:,.2f} ₺ "
+        lines.append(f"[ARTIS] Yatırım: {rep['invested']:,.2f} / {rep['invest_target']:,.2f} ₺ "
                      f"(%{rep['invest_pct']:.0f})")
         lines.append(f"📋 Harcama: {rep['total_expense']:,.2f} ₺ ({rep['n_expenses']} kayıt)")
     else:
@@ -761,12 +762,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Nakit ve portfoy her zaman gosterilir
     cash = await to_thread(get_cash, user.id)
-    lines.append(f"💰 Eldeki nakit: <b>{cash:,.2f} ₺</b>")
+    lines.append(f"[PARA] Eldeki nakit: <b>{cash:,.2f} ₺</b>")
 
     pf = await to_thread(portfolio.get_portfolio, user.id)
     if pf["positions"]:
         invested = sum(p.market_value for p in pf["positions"])
-        lines.append(f"📈 Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)")
+        lines.append(f"[ARTIS] Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)")
         lines.append(f"🏦 Toplam servet: <b>{cash + invested:,.2f} ₺</b>")
     else:
         lines.append("💼 Portföyün boş. Alım yapınca /ekle ile kaydet.")
@@ -813,7 +814,7 @@ async def checkin_expense_callback(update: Update, context: ContextTypes.DEFAULT
     if q.data == "checkin:expense:yes":
         set_pending_expense(user.id)
         await q.edit_message_text(
-            "💸 Tamam! Harcamanı şu formatta yaz:\n"
+            "[HARCAMA] Tamam! Harcamanı şu formatta yaz:\n"
             "<code>TUTAR KATEGORİ</code>\n"
             "Örn: <code>250 market</code>\n\n"
             "Örnek kategoriler: market, fatura, ulaşım, eğlence, kira, sağlık..."
@@ -842,7 +843,7 @@ async def salary_received_callback(update: Update, context: ContextTypes.DEFAULT
     new_cash = await to_thread(add_cash, user.id, plan["salary"])
     lines = [
         "🎉 <b>Yeni ay başladı, planın hazır!</b>\n",
-        f"💰 Maaşın eklendi, eldeki nakit: <b>{new_cash:,.2f} ₺</b>",
+        f"[PARA] Maaşın eklendi, eldeki nakit: <b>{new_cash:,.2f} ₺</b>",
         f"🏠 Zorunlu giderler: {plan['needs']:,.2f} ₺",
         f"🎉 İsteğe bağlı: {plan['wants']:,.2f} ₺",
         f"💾 Birikim: {plan['savings']:,.2f} ₺ "
@@ -853,7 +854,7 @@ async def salary_received_callback(update: Update, context: ContextTypes.DEFAULT
     if plan["invest_share"] > 0:
         lines += [
             "",
-            "📈 Yatırım payını değerlendirmek için: /sinyal",
+            "[ARTIS] Yatırım payını değerlendirmek için: /sinyal",
         ]
     lines.append(DISCLAIMER)
     await q.edit_message_text("\n".join(lines))
@@ -936,7 +937,7 @@ async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         balance = await to_thread(set_cash, user.id, val)
         await update.message.reply_text(
-            f"💰 Nakit bakiyen <b>{balance:,.2f} ₺</b> olarak ayarlandı.\n"
+            f"[PARA] Nakit bakiyen <b>{balance:,.2f} ₺</b> olarak ayarlandı.\n"
             "Bundan sonra maaş/harcama/alım/satışlar otomatik güncellenir."
         )
         return
@@ -946,9 +947,9 @@ async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     invested = sum(p.market_value for p in pf["positions"])
     total = cash + invested
     lines = [
-        "💰 <b>Eldeki Para Durumu</b>",
+        "[PARA] <b>Eldeki Para Durumu</b>",
         f"💵 Nakit: <b>{cash:,.2f} ₺</b>",
-        f"📈 Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)",
+        f"[ARTIS] Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)",
         f"🏦 Toplam servet: <b>{total:,.2f} ₺</b>",
     ]
     if total <= 0:
@@ -1061,7 +1062,7 @@ async def cmd_fundamental(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
     text = fundamentals.fundamentals_text(f)
     await update.message.reply_text(
-        f"📊 <b>{sym}</b> — {f['name']}\n\n{text}\n" + DISCLAIMER
+        f"[GRAFIK] <b>{sym}</b> — {f['name']}\n\n{text}\n" + DISCLAIMER
     )
 
 
@@ -1204,7 +1205,7 @@ async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if f:
             fund_data[sym] = f
     if fund_data:
-        lines.append("\n📊 <b>Temel Veri:</b>")
+        lines.append("\n[GRAFIK] <b>Temel Veri:</b>")
         for sym in syms:
             f = fund_data.get(sym)
             if f:
@@ -1326,14 +1327,14 @@ async def cmd_tax_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         f"🇹🇷 <b>GVKY Raporu ({year})</b>",
         "",
-        f"📈 Satış İşlemleri: {len(report['sales'])}",
-        f"💰 Toplam Kazanç: {report['total_gain']:,.2f} ₺",
-        f"🛡️ Muafiyet Limiti: {report['exempt_limit']:,.0f} ₺",
+        f"[ARTIS] Satış İşlemleri: {len(report['sales'])}",
+        f"[PARA] Toplam Kazanç: {report['total_gain']:,.2f} ₺",
+        f"[KALKAN] Muafiyet Limiti: {report['exempt_limit']:,.0f} ₺",
         f"📋 Vergilendirilecek Kazanç: <b>{report['taxable_gain']:,.2f} ₺</b>",
         "",
-        f"💰 Temettü (Kesintili): {divs['kesintili_toplam']:,.2f} ₺",
-        f"💰 Temettü (Kesintisiz): {divs['kesintisiz_toplam']:,.2f} ₺",
-        f"💸 Toplam Vergi: {divs['toplam_vergi']:,.2f} ₺",
+        f"[PARA] Temettü (Kesintili): {divs['kesintili_toplam']:,.2f} ₺",
+        f"[PARA] Temettü (Kesintisiz): {divs['kesintisiz_toplam']:,.2f} ₺",
+        f"[HARCAMA] Toplam Vergi: {divs['toplam_vergi']:,.2f} ₺",
     ]
     if report['sales']:
         lines.append("\n<b>📋 Detaylı Satışlar:</b>")
@@ -1403,7 +1404,7 @@ async def cmd_monte_carlo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     years = int(args[0]) if args and args[0].isdigit() else 10
     n_sim = int(args[1]) if len(args) > 1 and args[1].isdigit() else 200
 
-    await update.message.reply_text(f"🎲 Simülasyon çalışıyor ({years} yıl, {n_sim} senaryo)...")
+    await update.message.reply_text(f"[ZAR] Simülasyon çalışıyor ({years} yıl, {n_sim} senaryo)...")
     result = risk_metrics.monte_carlo_simulation(user.id, years, n_sim)
     await update.message.reply_text(risk_metrics.monte_carlo_text(result))
 
@@ -1477,7 +1478,7 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rep = budget.get_month_report(user.id)
         await update.message.reply_text(
             f"✅ <b>{amount:,.2f} ₺</b> ({category}) kaydedildi!\n"
-            f"💰 Kalan nakit: <b>{new_balance:,.2f} ₺</b>\n"
+            f"[PARA] Kalan nakit: <b>{new_balance:,.2f} ₺</b>\n"
             f"🧾 Bu ay kalan bütçe: <b>{rep['remaining']:,.2f} ₺</b>\n\n"
             "İyi iş! Her harcamayı kaydetmek bütçeni korur. 💪"
         )
@@ -1497,6 +1498,257 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• \"Portföyüm nasıl?\" → durum\n\n"
         "Komut listesi: /yardim | Asistan menüsü: /asistan"
     )
+
+
+# ---------- Menu Callback Handlers ----------
+
+@restricted
+async def menu_cash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    user = update.effective_user
+    cash = await to_thread(get_cash, user.id)
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    invested = sum(p.market_value for p in pf["positions"])
+    total = cash + invested
+    if action == "add":
+        await q.edit_message_text("[PARA] Ne kadar eklemek istiyorsun? Örn: <code>5000</code>")
+        context.user_data["cash_action"] = "add"
+        return
+    if action == "remove":
+        await q.edit_message_text("[HARCAMA] Ne kadar çıkarmak istiyorsun? Örn: <code>2000</code>")
+        context.user_data["cash_action"] = "remove"
+        return
+    if action == "detail":
+        lines = [
+            "[PARA] <b>Nakit Detayı</b>",
+            f"💵 Nakit: <b>{cash:,.2f} ₺</b>",
+            f"[ARTIS] Yatırımlar: {invested:,.2f} ₺",
+            f"🏦 Toplam: <b>{total:,.2f} ₺</b>",
+        ]
+        await q.edit_message_text("\n".join(lines), reply_markup=menu.cash_menu(cash))
+        return
+    await q.edit_message_text("[PARA] <b>Nakit Yönetimi</b>", reply_markup=menu.cash_menu(cash))
+
+
+@restricted
+async def menu_portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    user = update.effective_user
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    if action == "rebalance":
+        msg = assistant.rebalance_message(
+            assistant.plan_from_json((await to_thread(get_user_plan, user.id))["plan"]),
+            pf["positions"],
+            await to_thread(get_cash, user.id),
+        )
+        await q.edit_message_text(msg)
+        return
+    if action == "pick":
+        plan_row = get_user_plan(user.id)
+        if not plan_row:
+            await q.edit_message_text("📋 Önce plan kur: <code>/basla</code>")
+            return
+        plan = assistant.plan_from_json(plan_row["plan"])
+        cash = await to_thread(get_cash, user.id)
+        result = await to_thread(picker.pick, plan, pf["positions"], cash)
+        await q.edit_message_text(picker.pick_message(result))
+        return
+    if action == "buy":
+        await q.edit_message_text("[MARKET] Ne almak istiyorsun? Örn: <code>THYAO 100 250</code>")
+        context.user_data["trade_action"] = "buy"
+        return
+    if action == "sell":
+        await q.edit_message_text("[DUSUS] Ne satmak istiyorsun? Örn: <code>THYAO 50 300</code>")
+        context.user_data["trade_action"] = "sell"
+        return
+    if action == "detail":
+        msg = ""
+        for p in pf["positions"]:
+            msg += f"• {p.symbol}: {p.market_value:,.0f}₺ ({p.unrealized_pnl:+,.0f}₺)\n"
+        await q.edit_message_text(f"[ARTIS] <b>Portföy Detayı</b>\n{msg}")
+        return
+    total = sum(p.market_value for p in pf["positions"])
+    await q.edit_message_text("[ARTIS] <b>Portföy</b>", reply_markup=menu.portfolio_menu(sum(p.market_value for p in pf["positions"]), len(pf["positions"])))
+
+
+@restricted
+async def menu_risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    user = update.effective_user
+    plan_row = get_user_plan(user.id)
+    if not plan_row:
+        await q.edit_message_text("📋 Önce plan kur: <code>/basla</code>")
+        return
+    plan = assistant.plan_from_json(plan_row["plan"])
+    risk_score = {"sakin": 3, "dengeli": 5, "atilgan": 8}.get(plan["risk"], 5)
+    risk_level = {"sakin": "🟢 Koruma", "dengeli": "🟡 Dengeli", "atilgan": "🔴 Büyüme"}[plan["risk"]]
+    if action == "set":
+        await q.edit_message_text("[AYAR] Risk profilini seç:\n• <code>/basla</code> ile değiştir")
+        return
+    if action == "detail":
+        pf = await to_thread(portfolio.get_portfolio, q.from_user.id)
+        cash = await to_thread(get_cash, q.from_user.id)
+        r = risk.analyze(pf["positions"], cash)
+        await q.edit_message_text(risk.risk_text(r))
+        return
+    await q.edit_message_text("[KALKAN] <b>Risk Profili</b>", reply_markup=menu.risk_menu(risk_score, risk_level))
+
+
+@restricted
+async def menu_goals_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    user = update.effective_user
+    plan_row = get_user_plan(user.id)
+    if not plan_row:
+        await q.edit_message_text("📋 Önce plan kur: <code>/basla</code>")
+        return
+    plan = assistant.plan_from_json(plan_row["plan"])
+    rep = budget.get_month_report(user.id)
+    invest_progress = min(100, (rep["invested"] / plan["invest_share"] * 100)) if plan["invest_share"] else 0
+    cash = await to_thread(get_cash, user.id)
+    emergency_saved = plan_row["emergency_saved"] or 0
+    emergency_progress = min(100, (emergency_saved / plan["emergency_target"] * 100)) if plan["emergency_target"] else 100
+    if action == "set":
+        await q.edit_message_text("[HEDEF] Hedefleri değiştirmek için <code>/basla</code> yaz")
+        return
+    if action == "detail":
+        rep = budget.get_month_report(user.id)
+        lines = [
+            "[HEDEF] <b>Hedef Detayı</b>",
+            f"[PARA] Yatırım: {rep['invested']:,.0f} / {rep['invest_target']:,.0f} ₺ (%{rep['invest_pct']:.0f})",
+            f"[KALKAN] Acil Fon: {plan_row['emergency_saved'] or 0:,.0f} / {plan['emergency_target']:,.0f} ₺",
+        ]
+        await q.edit_message_text("\n".join(lines))
+        return
+    await q.edit_message_text("[HEDEF] <b>Hedefler</b>", reply_markup=menu.goals_menu(invest_progress, emergency_progress))
+
+
+@restricted
+async def menu_expense_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    if action == "cat":
+        category = q.data.split(":")[2]
+        context.user_data["expense_category"] = category
+        await q.edit_message_text(f"[HARCAMA] <b>{category.title()}</b> için tutar gir: Örn: <code>250</code>")
+        context.user_data["expense_action"] = "confirm"
+        return
+    if action == "custom":
+        await q.edit_message_text("[OZEL] Kategori ve tutar gir: Örn: <code>kitap 150</code>")
+        context.user_data["expense_action"] = "custom"
+        return
+    if action == "confirm":
+        # amount:category format
+        parts = q.data.split(":")
+        if len(parts) >= 4:
+            amount = float(parts[2])
+            category = parts[3]
+            user = update.effective_user
+            budget.record_expense(user.id, amount, category)
+            new_balance = await to_thread(add_cash, user.id, -amount)
+            await q.edit_message_text(f"✅ <b>{amount:,.0f}₺</b> → {category} kaydedildi!\n[PARA] Kalan: {new_balance:,.0f}₺")
+        return
+    await q.edit_message_text("[HARCAMA] <b>Harcama Ekle</b>", reply_markup=menu.expense_menu())
+
+
+@restricted
+async def menu_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    if action == "benchmark":
+        await q.edit_message_text("[GRAFIK] Benchmark karşılaştırması için: <code>/benchmark XU100.IS 365</code>")
+        return
+    if action == "risk":
+        await q.edit_message_text("[GRAFIK] Risk metrikleri için: <code>/riskmetrik 365</code>")
+        return
+    if action == "montecarlo":
+        await q.edit_message_text("[ZAR] Monte Carlo için: <code>/montecarlo 10 500</code>")
+        return
+    if action == "correlation":
+        await q.edit_message_text("[GRAFIK] Korelasyon için: <code>/korelasyon 1y</code>")
+        return
+    await q.edit_message_text("[GRAFIK] <b>Analiz Menusu</b>", reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("[GRAFIK] Benchmark", callback_data="analysis:benchmark"),
+         InlineKeyboardButton("[DUSUS] Risk Metrikleri", callback_data="analysis:risk")],
+        [InlineKeyboardButton("[ZAR] Monte Carlo", callback_data="analysis:montecarlo"),
+         InlineKeyboardButton("🔗 Korelasyon", callback_data="analysis:correlation")],
+        [InlineKeyboardButton("[GERI] Ana Menü", callback_data="menu:main")],
+    ]))
+
+
+@restricted
+async def menu_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    await q.edit_message_text("[AYAR] <b>Ayarlar</b>\n\n• Plan değiştir: <code>/basla</code>\n• Maaş günü: <code>/maasgunu 8</code>\n• Bildirimler: <code>/bildirimler</code>")
+
+
+@restricted
+async def trade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) < 2:
+        return
+    action = parts[1]
+    if action == "confirm":
+        # trade:confirm:BUY:THYAO:100:250
+        side = parts[2]
+        symbol = parts[3]
+        qty = float(parts[4])
+        price = float(parts[5])
+        if side == "BUY":
+            portfolio.buy(q.from_user.id, symbol, qty, price, "TRY")
+            cash_delta = -(qty * price)
+        else:
+            portfolio.sell(q.from_user.id, symbol, qty, price, "TRY")
+            cash_delta = qty * price
+        new_balance = await to_thread(add_cash, q.from_user.id, cash_delta)
+        await q.edit_message_text(f"✅ <b>{side} {symbol}</b> {qty} @ {price:,.2f} = {qty*price:,.2f}₺\n[PARA] Nakit: {new_balance:,.2f}₺")
+    elif action == "buy":
+        await q.edit_message_text("[MARKET] Alım: <code>SYMBOL ADET FIYAT</code> (örn: THYAO 100 250)")
+    elif action == "sell":
+        await q.edit_message_text("[DUSUS] Satış: <code>SYMBOL ADET FIYAT</code> (örn: THYAO 50 300)")
+
+
+@restricted
+async def subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) < 2:
+        return
+    action = parts[1]
+    if action == "confirm":
+        amount = float(parts[2])
+        day = int(parts[3])
+        # Abonelik kaydetme mantığı basit tutuluyor
+        await q.edit_message_text(f"✅ Abonelik takip edilecek: {amount:,.0f}₺ her ay {day}. gün")
+    elif action == "reject":
+        await q.edit_message_text("❌ Abonelik reddedildi.")
+
+
+@restricted
+async def push_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) < 2:
+        return
+    action = parts[1]
+    if action == "mute":
+        duration = parts[2] if len(parts) > 2 else "1h"
+        await q.edit_message_text(f"🔕 Bildirimler {duration} sessiz moda alındı.")
 
 
 # ---------- Kayit ----------
@@ -1573,6 +1825,17 @@ def register_handlers(app) -> None:
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(checkin_expense_callback, pattern=r"^checkin:expense:"))
     app.add_handler(CallbackQueryHandler(salary_received_callback, pattern=r"^salary:"))
+    # Menu callback handlers
+    app.add_handler(CallbackQueryHandler(menu_cash_callback, pattern=r"^cash:"))
+    app.add_handler(CallbackQueryHandler(menu_portfolio_callback, pattern=r"^portfolio:"))
+    app.add_handler(CallbackQueryHandler(menu_risk_callback, pattern=r"^risk:"))
+    app.add_handler(CallbackQueryHandler(menu_goals_callback, pattern=r"^goals:"))
+    app.add_handler(CallbackQueryHandler(menu_expense_callback, pattern=r"^expense:"))
+    app.add_handler(CallbackQueryHandler(menu_analysis_callback, pattern=r"^analysis:"))
+    app.add_handler(CallbackQueryHandler(menu_settings_callback, pattern=r"^settings:"))
+    app.add_handler(CallbackQueryHandler(trade_callback, pattern=r"^trade:"))
+    app.add_handler(CallbackQueryHandler(subscription_callback, pattern=r"^sub:"))
+    app.add_handler(CallbackQueryHandler(push_callback, pattern=r"^push:"))
 
     # Serbest metin (bekleyen harcama kaydi / yardim) EN SONA eklenmeli
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))

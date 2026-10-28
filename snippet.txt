@@ -1,0 +1,10 @@
+Analiz Menusu</b>", reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("[GRAFIK] Benchmark", callback_data="analysis:benchmark"),
+         InlineKeyboardButton("[DUSUS] Risk Metrikleri", callback_data="analysis:risk")],
+        [InlineKeyboardButton("[ZAR] Monte Carlo", callback_data="analysis:montecarlo"),
+         InlineKeyboardButton("🔗 Korelasyon", callback_data="analysis:correlation")],
+        [InlineKeyboardButton("[GERI] Ana Menü", callback_data="menu:main")],
+    ])
+
+
+@re

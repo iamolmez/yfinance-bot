@@ -1,0 +1,11 @@
+Line 1678, pos 56: char='ç' ord=231
+Line 1684, pos 31: char='🔗' ord=128279
+Line 1685, pos 45: char='ü' ord=252
+Line 1693, pos 56: char='•' ord=8226
+Line 1693, pos 65: char='ğ' ord=287
+Line 1693, pos 67: char='ş' ord=351
+Line 1693, pos 94: char='•' ord=8226
+Line 1693, pos 99: char='ş' ord=351
+Line 1693, pos 102: char='ü' ord=252
+Line 1693, pos 104: char='ü' ord=252
+Line 1693, pos 133: char='•' ord=8226
