@@ -28,6 +28,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def error_handler(update, context) -> None:
+    """Islem sirasinda olusan beklenmedik hatalari temizce loglar."""
+    logger.error("Islem hatasi: %s", context.error, exc_info=True)
+
+
 def start_health_server() -> None:
     """Bulut platformlarinin saglik kontrolu icin mini HTTP sunucusu.
 
@@ -83,6 +88,7 @@ def main() -> None:
 
     register_handlers(app)
     setup_jobs(app)
+    app.add_error_handler(error_handler)
 
     logger.info("Bot baslatiliyor...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

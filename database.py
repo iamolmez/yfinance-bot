@@ -14,6 +14,7 @@ Tablo:
 - user_plan    : asistan plani (maas bolumu)
 - pending_expense : aksam kontrolunde bekleyen harcama giris
 """
+import re
 import sqlite3
 import threading
 from datetime import datetime
@@ -28,6 +29,15 @@ if _use_pg:
     from psycopg.rows import dict_row
 else:
     psycopg = None  # type: ignore[assignment]
+
+
+# PRIMARY KEY'i 'id' degil baska sutun olan tablolar (INSERT sonrasi dondurulecek sutun)
+_PG_ID_COL = {
+    "users": "user_id",
+    "budgets": "user_id",
+    "user_plan": "user_id",
+    "pending_expense": "user_id",
+}
 
 
 _SCHEMA = """
@@ -126,10 +136,16 @@ def _pg_connect():
 
 
 def _pg_prepare(sql: str) -> str:
-    """Postgres uyumlu hale getirir: ? -> %s, INSERT sonuna RETURNING id."""
+    """Postgres uyumlu hale getirir: ? -> %s, INSERT sonuna RETURNING <pk>.
+
+    'id' sutunu olmayan tablolar (users, budgets...) icin anahtar sutun
+    _PG_ID_COL'dan alinir, aksi halde varsayilan 'id' kullanilir.
+    """
     s = sql.replace("?", "%s").strip().rstrip(";")
-    if s.lstrip().upper().startswith("INSERT"):
-        s += " RETURNING id"
+    m = re.search(r"INSERT INTO (\w+)", s, re.IGNORECASE)
+    if m:
+        col = _PG_ID_COL.get(m.group(1).lower(), "id")
+        s += f" RETURNING {col}"
     return s
 
 
@@ -178,7 +194,10 @@ def execute(sql: str, params: tuple = ()) -> int:
             if stmt.lstrip().upper().startswith("INSERT"):
                 row = cur.fetchone()
                 conn.commit()
-                return int(row["id"]) if row else 0
+                if row is None:  # ON CONFLICT DO NOTHING nedeniyle ekleme yok
+                    return 0
+                # RETURNING ile donen anahtar sutunu (id veya user_id) al
+                return int(list(row.values())[0])
             conn.commit()
             return cur.rowcount
         finally:

@@ -150,6 +150,10 @@ def main():
     check("pg INSERT + RETURNING", s.endswith("RETURNING id") and "?" not in s and "%s" in s, s)
     s2 = dbmod._pg_prepare("UPDATE alerts SET active = 0 WHERE id = ? AND user_id = ?")
     check("pg UPDATE %s", "?" not in s2 and s2.count("%s") == 2 and "RETURNING" not in s2, s2)
+    s3 = dbmod._pg_prepare("INSERT INTO users (user_id, username) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING")
+    check("pg INSERT user_id RETURNING", s3.endswith("RETURNING user_id"), s3)
+    s4 = dbmod._pg_prepare("INSERT INTO budgets (user_id, salary) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET salary = excluded.salary")
+    check("pg INSERT budgets RETURNING", s4.endswith("RETURNING user_id"), s4)
     # schema parcalama + AUTOINCREMENT -> SERIAL
     stmts = [x.strip() for x in dbmod._SCHEMA.split(";") if x.strip()]
     check("schema stmt sayisi (8 tablo + 4 indeks)", len(stmts) == 12, f"{len(stmts)} stmt")
