@@ -37,6 +37,7 @@ _PG_ID_COL = {
     "budgets": "user_id",
     "user_plan": "user_id",
     "pending_expense": "user_id",
+    "cash": "user_id",
 }
 
 

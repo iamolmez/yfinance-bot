@@ -926,8 +926,8 @@ async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏦 Toplam servet: <b>{total:,.2f} ₺</b>",
     ]
     if total <= 0:
-        lines.append("", "İlk bakiyeni gir: <code>/nakit 20000</code>")
-    lines.append("", "Dağılımı dengelemek için: /dengele")
+        lines.append("İlk bakiyeni gir: <code>/nakit 20000</code>")
+    lines.append("Dağılımı dengelemek için: /dengele")
     await update.message.reply_text("\n".join(lines))
 
 
