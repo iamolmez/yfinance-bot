@@ -4,6 +4,8 @@ Tum komutlar yalnizca ALLOWED_USER_IDS icindeki kullanicilara aciktir.
 """
 import asyncio
 import functools
+import io
+from datetime import date
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.ext import (
@@ -18,10 +20,13 @@ import config
 from database import (
     add_alert,
     add_alert_config,
+    add_backup_record,
     add_cash,
     add_corp_event,
+    add_dividend_event,
     add_emergency_savings,
     add_note,
+    add_tax_event,
     add_watch,
     clear_pending_expense,
     deactivate_alert_config,
@@ -29,10 +34,12 @@ from database import (
     delete_note,
     get_alert_configs,
     get_alerts,
+    get_backups,
     get_cash,
     get_corp_calendar,
     get_corp_calendar_for_symbol,
     get_notes,
+    get_portfolio_snapshots,
     get_transactions,
     get_user_plan,
     get_watchlist,
@@ -47,9 +54,13 @@ from services import (
     advanced_alerts,
     assistant,
     backtest,
+    backup,
+    benchmark,
     budget,
     calendar as cal_svc,
     charts,
+    correlation,
+    dividend,
     fundamentals,
     indicators as ind,
     inline,
@@ -60,7 +71,9 @@ from services import (
     picker,
     portfolio,
     risk,
+    risk_metrics,
     signals,
+    tax,
 )
 
 CUR_SYM = {"TRY": "₺", "USD": "$"}
@@ -1302,6 +1315,150 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_tax_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/vergiraporu [YIL] — GVKY raporu."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    year = int(arg) if arg and arg.isdigit() else date.today().year
+    report = tax.calculate_capital_gains(user.id, year)
+    divs = tax.calculate_dividend_income(user.id, year)
+
+    lines = [
+        f"🇹🇷 <b>GVKY Raporu ({year})</b>",
+        "",
+        f"📈 Satış İşlemleri: {len(report['sales'])}",
+        f"💰 Toplam Kazanç: {report['total_gain']:,.2f} ₺",
+        f"🛡️ Muafiyet Limiti: {report['exempt_limit']:,.0f} ₺",
+        f"📋 Vergilendirilecek Kazanç: <b>{report['taxable_gain']:,.2f} ₺</b>",
+        "",
+        f"💰 Temettü (Kesintili): {divs['kesintili_toplam']:,.2f} ₺",
+        f"💰 Temettü (Kesintisiz): {divs['kesintisiz_toplam']:,.2f} ₺",
+        f"💸 Toplam Vergi: {divs['toplam_vergi']:,.2f} ₺",
+    ]
+    if report['sales']:
+        lines.append("\n<b>📋 Detaylı Satışlar:</b>")
+        for s in report['sales'][:10]:
+            lines.append(
+                f"• {s['symbol']}: {s['qty']:.0f} adet @ {s['buy_price']:.2f} → {s['sell_price']:.2f} = {s['gain']:+,.2f} ₺"
+            )
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_csv_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/csv [islemler|portfoy|temettu] [YIL] — CSV export."""
+    user = update.effective_user
+    args = context.args
+    export_type = args[0] if args else "islemler"
+    year = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+
+    if export_type == "islemler":
+        csv_data = tax.export_csv_transactions(user.id, year)
+        filename = f"islemler_{year or 'all'}.csv"
+    elif export_type == "portfoy":
+        csv_data = tax.export_csv_portfolio(user.id)
+        filename = "portfoy.csv"
+    elif export_type == "temettu":
+        csv_data = tax.export_csv_dividends(user.id, year)
+        filename = f"temettu_{year or 'all'}.csv"
+    else:
+        await update.message.reply_text("Kullanım: <code>/csv islemler|portfoy|temettu [YIL]</code>")
+        return
+
+    await update.message.reply_document(
+        document=io.BytesIO(csv_data.encode()),
+        filename=filename,
+        caption=f"📄 {filename}"
+    )
+
+
+@restricted
+async def cmd_benchmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/benchmark [ENDİKS] [GUN] — portföy vs endeks karşılaştırması."""
+    user = update.effective_user
+    args = context.args
+    benchmark = args[0] if args else "XU100.IS"
+    days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 365
+
+    result = benchmark.compare_to_benchmark(user.id, benchmark, days)
+    await update.message.reply_text(benchmark.benchmark_text(result))
+
+
+@restricted
+async def cmd_risk_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/riskmetrik [GUN] — Sharpe, Sortino, Calmar, Max DD, VaR."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    days = int(arg) if arg and arg.isdigit() else 365
+
+    metrics = risk_metrics.calculate_metrics(user.id, days)
+    await update.message.reply_text(risk_metrics.metrics_text(metrics))
+
+
+@restricted
+async def cmd_monte_carlo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/montecarlo [YIL] [SIMULASYON] — Monte Carlo simülasyonu."""
+    user = update.effective_user
+    args = context.args
+    years = int(args[0]) if args and args[0].isdigit() else 10
+    n_sim = int(args[1]) if len(args) > 1 and args[1].isdigit() else 200
+
+    await update.message.reply_text(f"🎲 Simülasyon çalışıyor ({years} yıl, {n_sim} senaryo)...")
+    result = risk_metrics.monte_carlo_simulation(user.id, years, n_sim)
+    await update.message.reply_text(risk_metrics.monte_carlo_text(result))
+
+
+@restricted
+async def cmd_dividend_track(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/temettutakip [YIL] — temettü özeti + DRIP önerileri."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    year = int(arg) if arg and arg.isdigit() else date.today().year
+
+    summary = dividend.get_dividend_summary(user.id, year)
+    suggestions = dividend.drip_suggestions(user.id)
+
+    lines = [dividend.dividend_text(summary)]
+    if suggestions:
+        lines.append("\n🔄 <b>DRIP Önerileri:</b>")
+        for s in suggestions:
+            lines.append(f"• {s['symbol']}: {s['amount']:,.2f} ₺ ({s['date']}) — {s['note']}")
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_correlation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/korelasyon [PERIYOT] — korelasyon matrisi ve çeşitlendirme."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    period = arg if arg else "1y"
+
+    corr = correlation.calculate_correlation_matrix(user.id, period)
+    div = correlation.diversification_metrics(user.id)
+    await update.message.reply_text(correlation.correlation_text(corr, div))
+
+
+@restricted
+async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/yedek — GitHub Gist'e tam yedek al."""
+    user = update.effective_user
+    await update.message.reply_text("💾 Yedek oluşturuluyor...")
+    result = backup.create_backup(user.id)
+    await update.message.reply_text(backup.backup_text(result))
+
+
+@restricted
+async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/yedekal GIST_ID — Gist'ten yedek indir."""
+    arg = _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/yedekal GIST_ID</code>")
+        return
+    result = backup.restore_backup(update.effective_user.id, arg)
+    await update.message.reply_text(f"⚠️ {result.get('error', 'Bilinmeyen hata')}")
+
+
+@restricted
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serbest metin: harcama kaydi, dogal dil komutu veya yardim menusu."""
     user = update.effective_user
@@ -1402,6 +1559,15 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("alarm2lar", cmd_advanced_alerts_list))
     app.add_handler(CommandHandler("alarm2sil", cmd_advanced_alert_remove))
     app.add_handler(CommandHandler("performans", cmd_performance))
+    app.add_handler(CommandHandler("vergiraporu", cmd_tax_report))
+    app.add_handler(CommandHandler("csv", cmd_csv_export))
+    app.add_handler(CommandHandler("benchmark", cmd_benchmark))
+    app.add_handler(CommandHandler("riskmetrik", cmd_risk_metrics))
+    app.add_handler(CommandHandler("montecarlo", cmd_monte_carlo))
+    app.add_handler(CommandHandler("temettutakip", cmd_dividend_track))
+    app.add_handler(CommandHandler("korelasyon", cmd_correlation))
+    app.add_handler(CommandHandler("yedek", cmd_backup))
+    app.add_handler(CommandHandler("yedekal", cmd_restore))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))

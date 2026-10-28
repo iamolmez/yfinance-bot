@@ -38,6 +38,13 @@ _PG_ID_COL = {
     "user_plan": "user_id",
     "pending_expense": "user_id",
     "cash": "user_id",
+    "tax_events": "id",
+    "dividend_events": "id",
+    "backups": "id",
+    "portfolio_snapshots": "id",
+    "notes": "id",
+    "alert_config": "id",
+    "corp_calendar": "id",
 }
 
 
@@ -115,6 +122,54 @@ CREATE TABLE IF NOT EXISTS pending_expense (
     user_id    INTEGER PRIMARY KEY,
     note       TEXT,
     created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tax_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    symbol     TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    qty        REAL NOT NULL,
+    price      REAL NOT NULL,
+    amount     REAL NOT NULL,
+    fee        REAL DEFAULT 0,
+    currency   TEXT DEFAULT 'TRY',
+    event_date TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dividend_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    symbol     TEXT NOT NULL,
+    gross_amount REAL NOT NULL,
+    tax_withheld REAL DEFAULT 0,
+    net_amount REAL NOT NULL,
+    currency   TEXT DEFAULT 'TRY',
+    ex_date    TEXT NOT NULL,
+    pay_date   TEXT,
+    drip_enabled INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    backup_type TEXT NOT NULL,
+    gist_id    TEXT,
+    file_size  INTEGER,
+    checksum   TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    total_value   REAL NOT NULL,
+    invested      REAL NOT NULL,
+    cash          REAL NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -482,6 +537,95 @@ def clear_pending_expense(user_id: int) -> None:
 def has_pending_expense(user_id: int) -> bool:
     row = query_one("SELECT 1 FROM pending_expense WHERE user_id = ?", (user_id,))
     return row is not None
+
+
+# ---------------- Vergi / İşlem olayları ----------------
+
+def add_tax_event(user_id: int, symbol: str, event_type: str, qty: float, price: float,
+                  amount: float, fee: float = 0.0, currency: str = "TRY",
+                  event_date: str | None = None) -> int:
+    return execute(
+        "INSERT INTO tax_events (user_id, symbol, event_type, qty, price, amount, fee, currency, event_date, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, symbol, event_type, qty, price, amount, fee, currency,
+         event_date or now_iso(), now_iso()),
+    )
+
+
+def get_tax_events(user_id: int, year: int | None = None) -> list:
+    if year:
+        return query(
+            "SELECT * FROM tax_events WHERE user_id = ? AND substr(event_date, 1, 4) = ? ORDER BY event_date",
+            (user_id, str(year)),
+        )
+    return query(
+        "SELECT * FROM tax_events WHERE user_id = ? ORDER BY event_date", (user_id,)
+    )
+
+
+# ---------------- Temettü olayları ----------------
+
+def add_dividend_event(user_id: int, symbol: str, gross_amount: float,
+                       tax_withheld: float, net_amount: float, currency: str,
+                       ex_date: str, pay_date: str | None = None,
+                       drip_enabled: int = 0) -> int:
+    return execute(
+        "INSERT INTO dividend_events (user_id, symbol, gross_amount, tax_withheld, net_amount, currency, ex_date, pay_date, drip_enabled, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, symbol, gross_amount, tax_withheld, net_amount, currency, ex_date,
+         pay_date, drip_enabled, now_iso()),
+    )
+
+
+def get_dividend_events(user_id: int, symbol: str | None = None, year: int | None = None) -> list:
+    sql = "SELECT * FROM dividend_events WHERE user_id = ?"
+    params = [user_id]
+    if symbol:
+        sql += " AND symbol = ?"
+        params.append(symbol)
+    if year:
+        sql += " AND substr(ex_date, 1, 4) = ?"
+        params.append(str(year))
+    sql += " ORDER BY ex_date"
+    return query(sql, tuple(params))
+
+
+# ---------------- Yedekler ----------------
+
+def add_backup_record(user_id: int, backup_type: str, gist_id: str = "",
+                      file_size: int = 0, checksum: str = "") -> int:
+    return execute(
+        "INSERT INTO backups (user_id, backup_type, gist_id, file_size, checksum, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, backup_type, gist_id, file_size, checksum, now_iso()),
+    )
+
+
+def get_backups(user_id: int, limit: int = 10) -> list:
+    return query(
+        "SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    )
+
+
+# ---------------- Portföy anlık görüntüleri ----------------
+
+def add_portfolio_snapshot(user_id: int, total_value: float, invested: float,
+                           cash: float, snapshot_date: str | None = None) -> int:
+    return execute(
+        "INSERT INTO portfolio_snapshots (user_id, total_value, invested, cash, snapshot_date, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, total_value, invested, cash, snapshot_date or now_iso(), now_iso()),
+    )
+
+
+def get_portfolio_snapshots(user_id: int, days: int = 365) -> list:
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days)).isoformat()
+    return query(
+        "SELECT * FROM portfolio_snapshots WHERE user_id = ? AND snapshot_date >= ? ORDER BY snapshot_date",
+        (user_id, start),
+    )
 
 
 # ---------------- Notlar ----------------

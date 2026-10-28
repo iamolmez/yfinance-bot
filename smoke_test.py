@@ -156,9 +156,9 @@ def main():
     check("pg INSERT budgets RETURNING", s4.endswith("RETURNING user_id"), s4)
     # schema parcalama + AUTOINCREMENT -> SERIAL
     stmts = [x.strip() for x in dbmod._SCHEMA.split(";") if x.strip()]
-    check("schema stmt sayisi (12 tablo + 4 indeks)", len(stmts) == 16, f"{len(stmts)} stmt")
+    check("schema stmt sayisi (16 tablo + 4 indeks)", len(stmts) == 20, f"{len(stmts)} stmt")
     tables = [x for x in stmts if x.startswith("CREATE TABLE")]
-    check("12 tablo", len(tables) == 12, f"{len(tables)} tablo")
+    check("16 tablo", len(tables) == 16, f"{len(tables)} tablo")
     watch_stmt = next(x for x in stmts if "watchlist" in x and "CREATE TABLE" in x)
     pg_watch = watch_stmt.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
     check("pg AUTOINCREMENT -> SERIAL", "SERIAL PRIMARY KEY" in pg_watch and "AUTOINCREMENT" not in pg_watch)
