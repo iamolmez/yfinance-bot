@@ -143,63 +143,55 @@ python main.py
 
 ---
 
-## ☁️ Buluta Taşıma (7/24 Kesintisiz)
+## ☁️ Buluta Taşıma (7/24 Kesintisiz — Ücretsiz)
 
-Proje **Railway** ve **Render** için hazır (`railway.json`, `render.yaml`, `Procfile`).
-Bilgisayarını kapatmadan botun 7/24 çalışması için birini seç.
+**Seçilen yol: Render (ücretsiz) + Neon Postgres + UptimeRobot ping.**
 
-### 🚄 Seçenek 1: Railway (Önerilen — ücretsiz kotta uyumaz)
+- 🚀 **Render** — GitHub'dan ücretsiz deploy (kart gerekmez), 750 saat/ay kotası
+  (24/7 çalışan bot ~720 saat kullanır, sığar).
+- 🔋 **UptimeRobot** — ücretsiz, 5 dk'da bir sağlık adresine ping atar; Render
+  ücretsiz katmanı 15 dk sessizlikte uyuttuğu için bu ping botu uyanık tutar.
+- 🗄️ **Neon** — ücretsiz Postgres (0.5 GB). Render ücretsiz katmanda kalıcı disk
+  desteklemediği için veriler bulut veritabanında saklanır. `DATABASE_URL` set
+  edildiğinde bot otomatik Postgres kullanır (kod değişmez).
 
-1. **GitHub'a yükle:** [github.com](https://github.com) → New repository oluştur.
-   Terminalde:
-   ```bash
-   git init
-   git add .
-   git commit -m "YFinance bot"
-   git branch -M main
-   git remote add origin https://github.com/KULLANICIADI/REPO_ADI.git
-   git push -u origin main
-   ```
-2. **Railway'e bağla:** [railway.app](https://railway.app) → GitHub ile üye ol →
-   **New Project → Deploy from GitHub repo** → bu repoyu seç.
-   `railway.json` otomatik algılanır, hiçbir şey yapılandırman gerekmez.
-3. **Gizli değişkenleri gir:** Project → **Variables** bölümüne ekle:
+### 1. Neon: ücretsiz Postgres oluştur
+1. [neon.tech](https://neon.tech) → GitHub ile üye ol → **Create a project**
+   (region: Europe) → veritabanı oluşur.
+2. **Connection string**'i kopyala: `postgresql://user:pass@host/db?sslmode=require`
+   (buna `DATABASE_URL` diyeceğiz).
+
+### 2. Render: botu deploy et
+1. [render.com](https://render.com) → GitHub ile üye ol (kart gerekmez).
+2. **New → Blueprint** → `iamolmez/yfinance-bot` repoyu seç. `render.yaml`
+   otomatik yapılandırır.
+3. Deploy başlar; **Environment** ayarlarından şu değişkenleri gir:
    ```
    BOT_TOKEN=BotFather'dan_aldığın_token
-   ALLOWED_USER_IDS=senin_user_id'n
-   DB_PATH=/data/finance.db
+   ALLOWED_USER_IDS=user_id'n
+   DATABASE_URL=neon'dan_kopyaladığın_adres
    ```
-4. **Kalıcı disk ekle (çok önemli!):** Deploy edilen servisin **Settings →**
-   **Volumes** sekmesinden bir volume oluştur, **Mount Path**: `/data`
-   (Yoksa her yeniden dağıtımda verilerin silinir.)
-5. Deploy işlemi bitince bot aktif! Loglar'dan `Bot baslatiliyor...` görürsün.
-   Telegram'da test et: `/start`
+4. Deploy bitince loglarda `Application started` gör. Bot aktif!
 
-> 💸 Railway ücretsiz kotta aylık ~500 saat (~$5 kredi) verir; 24/7 çalışan
-> küçük bir bot buna rahat sığar.
+### 3. UptimeRobot: botu uyanık tut
+1. [uptimerobot.com](https://uptimerobot.com) → ücretsiz üye ol.
+2. **Add New Monitor** → **HTTP(s)** → URL'ye Render servis adresini gir:
+   `https://yfinance-bot.onrender.com/`
+3. **Monitoring Interval: 5 minutes** → **Create Monitor**.
 
-### 🎨 Seçenek 2: Render
+Bitti! 🎉 Artık bilgisayarın kapalıyken de bot 7/24 çalışır ve verilerin
+Neon'da güvende.
 
-1. GitHub'a yükle (yukarıdaki 1. adım).
-2. [render.com](https://render.com) → üye ol → **New → Blueprint** → repoyu seç.
-   `render.yaml` otomatik yapılandırır.
-3. Servis ayarlarından `BOT_TOKEN` ve `ALLOWED_USER_IDS` değişkenlerini gir.
-
-> ⚠️ Render **ücretsiz kotta 15 dk sessizlikten sonra servisi uyutur.** Bot
-> kesintisiz çalışsın istiyorsan **Always On** (aylık ~$7) gerekir. Ücretsiz ve
-> uyumayan bir çözüm istiyorsan Railway'ı kullan.
-
-### 🔄 Yeniden dağıtım
-GitHub'a `git push` yaptığında Railway/Render otomatik yeni sürümü dağıtır.
-Verilerin volume'de saklandığı için korunur.
+### 🔄 Güncellemeler
+`git push` yaptığında Render otomatik yeniden dağıtır. Veriler Neon'da
+olduğu için korunur.
 
 ### 🐞 Hata ayıklama
-- Servis loglarını aç (Railway: Deployments → View Logs)
-- En yaygın hatalar:
-  - `BOT_TOKEN bos!` → Variables'da BOT_TOKEN set edilmemiş
-  - `401 Unauthorized` → token yanlış ya da BotFather'da yenilenmiş
-  - `Errno 13 Permission denied /data` → volume mount edilmemiş
-  - Veriler kayboluyor → DB_PATH=/data/finance.db + volume kontrol et
+- **Render logları:** Dashboard → Service → Logs
+- `BOT_TOKEN bos!` → env değişkeni set edilmemiş
+- `401 Unauthorized` → token yanlış / yenilenmiş
+- Veritabanı hatası → `DATABASE_URL` doğru mu, `?sslmode=require` ekli mi
+- Servis uyuyor mu → UptimeRobot monitor çalışıyor mu, 5 dk aralık mı
 
 ### Alarmlar
 - `/alarm THYAO 300 ust` — fiyat 300'ü geçince bildir

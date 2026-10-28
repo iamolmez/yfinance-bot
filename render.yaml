@@ -1,9 +1,10 @@
 # Render Blueprint - https://render.com
 # Kullanim: render.com -> New -> Blueprint -> bu repo'nun public GitHub linki
 #
-# NOT: Render ucretsiz katmanda servisi 15 dk sessizlikten sonra uyutur.
-# Botun 7/24 kesintisiz calismasi icin "Always On" (ucretli) gerekir.
-# Ucretsiz kalici calisma icin Railway onerilir (bkz. railway.json).
+# NOT 1: Render ucretsiz katman 15 dk sessizlikte servisi uyutur. UptimeRobot
+# (ucretsiz) ile 5 dk'da bir / pingleyerek uyanik tutulur.
+# NOT 2: Render ucretsiz katmanda kalici disk DESTEKLEMEZ. Veriler Neon
+# (ucretsiz Postgres) kullanilarak korunur -> DATABASE_URL gerekli.
 services:
   - type: web
     name: yfinance-bot
@@ -18,11 +19,7 @@ services:
         sync: false        # Dashboard'dan guvenli sekilde set edilecek
       - key: ALLOWED_USER_IDS
         sync: false
-      - key: DB_PATH
-        value: /var/data/finance.db
+      - key: DATABASE_URL
+        sync: false        # Neon ucretsiz Postgres baglanti adresi
       - key: TZ
         value: Europe/Istanbul
-    disk:
-      name: yfinance-data
-      mountPath: /var/data
-      sizeGB: 1

@@ -1,4 +1,8 @@
-"""SQLite veritabani katmani.
+"""Veritabani katmani — SQLite (yerel) ve PostgreSQL (bulut) destegi.
+
+DATABASE_URL ortam degiskeni set ise PostgreSQL (Neon/Supabase/Render DB),
+degilse yerel SQLite (finance.db) kullanilir. Ayni fonksiyon API'si ikisinde
+de gecerli oldugundan uygulama kodu fark etmeden calisir.
 
 Tablo:
 - users        : yetkili kullanicilar
@@ -7,14 +11,24 @@ Tablo:
 - budgets      : maas + aylik yatirim hedefi
 - expenses     : harcamalar (kategori bazli)
 - alerts       : fiyat alarmlari
+- user_plan    : asistan plani (maas bolumu)
+- pending_expense : aksam kontrolunde bekleyen harcama giris
 """
 import sqlite3
 import threading
 from datetime import datetime
 
-from config import DB_PATH
+import config
 
+_use_pg = bool(config.DATABASE_URL)
 _lock = threading.Lock()
+
+if _use_pg:
+    import psycopg
+    from psycopg.rows import dict_row
+else:
+    psycopg = None  # type: ignore[assignment]
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -99,10 +113,24 @@ CREATE INDEX IF NOT EXISTS idx_alert_user ON alerts(user_id);
 """
 
 
+# ---------------- Altyapi ----------------
+
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _pg_connect():
+    return psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
+
+
+def _pg_prepare(sql: str) -> str:
+    """Postgres uyumlu hale getirir: ? -> %s, INSERT sonuna RETURNING id."""
+    s = sql.replace("?", "%s").strip().rstrip(";")
+    if s.lstrip().upper().startswith("INSERT"):
+        s += " RETURNING id"
+    return s
 
 
 def now_iso() -> str:
@@ -110,6 +138,23 @@ def now_iso() -> str:
 
 
 def init_db() -> None:
+    if _use_pg:
+        conn = psycopg.connect(config.DATABASE_URL)
+        try:
+            cur = conn.cursor()
+            for stmt in _SCHEMA.split(";"):
+                stmt = stmt.strip()
+                if not stmt:
+                    continue
+                # PostgreSQL'de AUTOINCREMENT yoktur; SERIAL kullanilir
+                stmt = stmt.replace(
+                    "INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY"
+                )
+                cur.execute(stmt)
+            conn.commit()
+        finally:
+            conn.close()
+        return
     with _lock:
         conn = _conn()
         try:
@@ -120,26 +165,64 @@ def init_db() -> None:
 
 
 def execute(sql: str, params: tuple = ()) -> int:
-    """Yazma islemleri. Etkilenen satir sayisini (veya rowid'yi) dondurur."""
+    """Yazma islemleri.
+
+    INSERT  -> yeni satirin id'sini dondurur
+    diger   -> etkilenen satir sayisini dondurur (rowcount)
+    """
+    if _use_pg:
+        conn = _pg_connect()
+        try:
+            stmt = _pg_prepare(sql)
+            cur = conn.execute(stmt, params)
+            if stmt.lstrip().upper().startswith("INSERT"):
+                row = cur.fetchone()
+                conn.commit()
+                return int(row["id"]) if row else 0
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
     with _lock:
         conn = _conn()
         try:
             cur = conn.execute(sql, params)
             conn.commit()
-            return cur.lastrowid
+            if sql.lstrip().upper().startswith("INSERT"):
+                return cur.lastrowid
+            return cur.rowcount
         finally:
             conn.close()
 
 
-def query(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+def query(sql: str, params: tuple = ()) -> list:
+    if _use_pg:
+        conn = _pg_connect()
+        try:
+            cur = conn.execute(sql.replace("?", "%s"), params)
+            rows = cur.fetchall()
+            conn.commit()
+            return list(rows)
+        finally:
+            conn.close()
     conn = _conn()
     try:
-        return conn.execute(sql, params).fetchall()
+        return list(conn.execute(sql, params).fetchall())
     finally:
         conn.close()
 
 
-def query_one(sql: str, params: tuple = ()) -> sqlite3.Row | None:
+def query_one(sql: str, params: tuple = ()):
+    if _use_pg:
+        conn = _pg_connect()
+        try:
+            cur = conn.execute(sql.replace("?", "%s"), params)
+            row = cur.fetchone()
+            conn.commit()
+            return row
+        finally:
+            conn.close()
     conn = _conn()
     try:
         return conn.execute(sql, params).fetchone()
@@ -151,8 +234,8 @@ def query_one(sql: str, params: tuple = ()) -> sqlite3.Row | None:
 
 def register_user(user_id: int, username: str = "", first_name: str = "") -> None:
     execute(
-        "INSERT OR IGNORE INTO users (user_id, username, first_name, created_at) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO users (user_id, username, first_name, created_at) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO NOTHING",
         (user_id, username or "", first_name or "", now_iso()),
     )
 
@@ -160,14 +243,12 @@ def register_user(user_id: int, username: str = "", first_name: str = "") -> Non
 # ---------------- Takip listesi ----------------
 
 def add_watch(user_id: int, symbol: str) -> bool:
-    try:
-        execute(
-            "INSERT OR IGNORE INTO watchlist (user_id, symbol, created_at) VALUES (?, ?, ?)",
-            (user_id, symbol, now_iso()),
-        )
-        return True
-    except sqlite3.IntegrityError:
-        return False
+    execute(
+        "INSERT INTO watchlist (user_id, symbol, created_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, symbol) DO NOTHING",
+        (user_id, symbol, now_iso()),
+    )
+    return True
 
 
 def remove_watch(user_id: int, symbol: str) -> bool:
@@ -177,14 +258,14 @@ def remove_watch(user_id: int, symbol: str) -> bool:
     return cur_affected > 0
 
 
-def get_watchlist(user_id: int) -> list[sqlite3.Row]:
+def get_watchlist(user_id: int) -> list:
     return query(
         "SELECT symbol, created_at FROM watchlist WHERE user_id = ? ORDER BY created_at",
         (user_id,),
     )
 
 
-def get_all_watchlists() -> list[sqlite3.Row]:
+def get_all_watchlists() -> list:
     return query("SELECT DISTINCT user_id, symbol FROM watchlist ORDER BY user_id")
 
 
@@ -200,7 +281,7 @@ def add_transaction(user_id: int, symbol: str, side: str, qty: float, price: flo
 
 
 def get_transactions(user_id: int, symbol: str | None = None,
-                     month: str | None = None) -> list[sqlite3.Row]:
+                     month: str | None = None) -> list:
     sql = "SELECT * FROM transactions WHERE user_id = ?"
     params: list = [user_id]
     if symbol:
@@ -233,7 +314,7 @@ def set_budget(user_id: int, salary: float, invest_amount: float, currency: str 
     )
 
 
-def get_budget(user_id: int) -> sqlite3.Row | None:
+def get_budget(user_id: int):
     return query_one("SELECT * FROM budgets WHERE user_id = ?", (user_id,))
 
 
@@ -244,7 +325,7 @@ def add_expense(user_id: int, amount: float, category: str, note: str = "") -> i
     )
 
 
-def get_expenses(user_id: int, month: str | None = None) -> list[sqlite3.Row]:
+def get_expenses(user_id: int, month: str | None = None) -> list:
     sql = "SELECT * FROM expenses WHERE user_id = ?"
     params: list = [user_id]
     if month:
@@ -254,7 +335,7 @@ def get_expenses(user_id: int, month: str | None = None) -> list[sqlite3.Row]:
     return query(sql, tuple(params))
 
 
-def get_expenses_by_category(user_id: int, month: str) -> list[sqlite3.Row]:
+def get_expenses_by_category(user_id: int, month: str) -> list:
     return query(
         "SELECT category, SUM(amount) AS total, COUNT(*) AS cnt "
         "FROM expenses WHERE user_id = ? AND substr(created_at, 1, 7) = ? "
@@ -273,7 +354,7 @@ def add_alert(user_id: int, symbol: str, target_price: float, direction: str) ->
     )
 
 
-def get_alerts(user_id: int | None = None, active_only: bool = False) -> list[sqlite3.Row]:
+def get_alerts(user_id: int | None = None, active_only: bool = False) -> list:
     sql = "SELECT * FROM alerts"
     params: list = []
     where = []
@@ -319,7 +400,7 @@ def set_user_plan(user_id: int, salary: float, expenses: float, risk: str, goal:
     )
 
 
-def get_user_plan(user_id: int) -> sqlite3.Row | None:
+def get_user_plan(user_id: int):
     return query_one("SELECT * FROM user_plan WHERE user_id = ?", (user_id,))
 
 

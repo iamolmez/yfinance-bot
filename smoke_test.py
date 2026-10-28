@@ -143,6 +143,23 @@ def main():
     big2 = alert_mod.check_big_moves(threshold_pct=0.0)
     check("gun icinde tekrar yok", len(big2) == 0, f"{len(big2)} bildirim")
 
+    print("== PostgreSQL SQL hazirligi (canli DB olmadan) ==")
+    import database as dbmod
+    # placeholder donusumu + RETURNING id
+    s = dbmod._pg_prepare("INSERT INTO alerts (user_id, symbol) VALUES (?, ?)")
+    check("pg INSERT + RETURNING", s.endswith("RETURNING id") and "?" not in s and "%s" in s, s)
+    s2 = dbmod._pg_prepare("UPDATE alerts SET active = 0 WHERE id = ? AND user_id = ?")
+    check("pg UPDATE %s", "?" not in s2 and s2.count("%s") == 2 and "RETURNING" not in s2, s2)
+    # schema parcalama + AUTOINCREMENT -> SERIAL
+    stmts = [x.strip() for x in dbmod._SCHEMA.split(";") if x.strip()]
+    check("schema stmt sayisi (8 tablo + 4 indeks)", len(stmts) == 12, f"{len(stmts)} stmt")
+    tables = [x for x in stmts if x.startswith("CREATE TABLE")]
+    check("8 tablo", len(tables) == 8, f"{len(tables)} tablo")
+    watch_stmt = next(x for x in stmts if "watchlist" in x and "CREATE TABLE" in x)
+    pg_watch = watch_stmt.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    check("pg AUTOINCREMENT -> SERIAL", "SERIAL PRIMARY KEY" in pg_watch and "AUTOINCREMENT" not in pg_watch)
+    check("pg schema '?' yok", all("?" not in x for x in stmts))
+
     print()
     if FAIL:
         print(f"SONUC: {len(FAIL)} HATA -> {FAIL}")

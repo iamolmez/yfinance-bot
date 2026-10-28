@@ -32,6 +32,10 @@ HISTORY_PERIOD: str = os.getenv("HISTORY_PERIOD", "6mo")
 QUOTE_PERIOD: str = os.getenv("QUOTE_PERIOD", "5d")
 CACHE_TTL: int = _env_int("CACHE_TTL", 180)  # saniye
 
+# Bulut (Render) icin: Neon/Supabase gibi PostgreSQL baglanti adresi.
+# Bos birakilirsa yerel SQLite kullanilir (finance.db).
+DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip()
+
 # --- Zamanlanmis gorevler ---
 SCAN_MINUTES: int = _env_int("SCAN_MINUTES", 60)
 ALERT_CHECK_SECONDS: int = _env_int("ALERT_CHECK_SECONDS", 180)
