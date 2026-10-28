@@ -1,0 +1,32 @@
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📖 <b>Komut Rehberi</b>\n\n"
+        "<b>[GRAFIK] Piyasa</b>\n"
+        "/hisse SYMBOL — anlık fiyat + analiz (örn: THYAO, AAPL, BTC)\n"
+        "/analiz SYMBOL — detaylı teknik analiz\n"
+        "/dolar — güncel döviz kurları\n\n"
+        "<b>🔔 Takip & Sinyal</b>\n"
+        "/takip SYMBOL — takip listesine ekle\n"
+        "/takipler — takip listen\n"
+        "/silah SYMBOL — listeden çıkar\n"
+        "/sinyal — tüm listeni tara, sinyalleri göster\n"
+        "/alarm SYMBOL FIYAT [ust|alt] — fiyat alarmı\n"
+        "/alarmlar — alarmların\n"
+        "/alarmsil ID — alarmı sil\n\n"
+        "<b>💼 Portföy</b>\n"
+        "/ekle SYMBOL ADET FIYAT — alım kaydet\n"
+        "/sat SYMBOL ADET FIYAT — satış kaydet\n"
+        "/portfoy — portföy özeti ve kar/zarar\n"
+        "/islemler — işlem geçmişi\n\n"
+        "<b>[PARA] Maaş & Bütçe</b>\n"
+        "/maas TUTAR — aylık maaşını tanımla\n"
+        "/yatirim TUTAR — aylık yatırım hedefi\n"
+        "/harcama TUTAR KATEGORİ — gider ekle\n"
+        "/butce — bütçe durumu\n"
+        "/rapor — aylık rapor\n\n"
+        "⚠️ <i>Sinyaller yatırım tavsiyesi değildir.</i>"
+    )
+    await update.message.reply_text(text)
+
+
+async def send_quote

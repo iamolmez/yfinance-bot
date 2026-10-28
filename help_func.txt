@@ -1,0 +1,12 @@
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📖 <b>Komut Rehberi</b>\n\n"
+        "<b>[GRAFIK] Piyasa</b>\n"
+        "/hisse SYMBOL — anlık fiyat + analiz (örn: THYAO, AAPL, BTC)\n"
+        "/analiz SYMBOL — detaylı teknik analiz\n"
+        "/dolar — güncel döviz kurları\n\n"
+        "<b>🔔 Takip & Sinyal</b>\n"
+        "/takip SYMBOL — takip listesine ekle\n"
+        "/takipler — takip listen\n"
+        "/silah SYMBOL — listeden çıkar\n"
+        "/
