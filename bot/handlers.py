@@ -725,26 +725,25 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if plan_row:
         plan = assistant.plan_from_json(plan_row["plan"])
         lines.append(assistant.emergency_status(plan, plan_row["emergency_saved"] or 0))
-        cash = await to_thread(get_cash, user.id)
         rep = budget.get_month_report(user.id)
-        lines.append(f"💰 Eldeki nakit: <b>{cash:,.2f} ₺</b>")
         lines.append(f"🧾 Bu ay kalan bütçe: <b>{rep['remaining']:,.2f} ₺</b>")
         lines.append(f"📈 Yatırım: {rep['invested']:,.2f} / {rep['invest_target']:,.2f} ₺ "
                      f"(%{rep['invest_pct']:.0f})")
         lines.append(f"📋 Harcama: {rep['total_expense']:,.2f} ₺ ({rep['n_expenses']} kayıt)")
     else:
-        lines.append("📋 Planın yok. /basla ile 2 dakikada oluştur.")
-        return await update.message.reply_text("\n".join(lines))
+        lines.append("📋 Planın yok. 2 dakikada oluştur: <code>/basla</code>")
 
-    pf = portfolio.get_portfolio(user.id)
+    # Nakit ve portfoy her zaman gosterilir
+    cash = await to_thread(get_cash, user.id)
+    lines.append(f"💰 Eldeki nakit: <b>{cash:,.2f} ₺</b>")
+
+    pf = await to_thread(portfolio.get_portfolio, user.id)
     if pf["positions"]:
-        lines.append("")
-        lines.append("<b>💼 Portföy</b>")
-        for p in pf["positions"][:5]:
-            arrow = "🟢" if p.unrealized_pnl >= 0 else "🔴"
-            lines.append(f"• {arrow} {p.symbol}: {p.market_value:,.2f} ({p.unrealized_pnl:+,.2f})")
+        invested = sum(p.market_value for p in pf["positions"])
+        lines.append(f"📈 Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)")
+        lines.append(f"🏦 Toplam servet: <b>{cash + invested:,.2f} ₺</b>")
     else:
-        lines.append("\n💼 Portföyün boş. Alım yapınca /ekle ile kaydet.")
+        lines.append("💼 Portföyün boş. Alım yapınca /ekle ile kaydet.")
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
 
@@ -975,7 +974,7 @@ async def cmd_rebalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/oner — bot kendisi hisse secer (guvenli + riskli karisimi)."""
+    """/oner [taze] — bot kendisi hisse secer (guvenli + riskli karisimi)."""
     user = update.effective_user
     plan_row = get_user_plan(user.id)
     if not plan_row:
@@ -985,11 +984,35 @@ async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     plan = assistant.plan_from_json(plan_row["plan"])
-    await update.message.reply_text("🔍 Havuz taranıyor (30+ varlık), biraz bekleyin...")
+    force = (_arg(context, 0) or "").lower() in ("taze", "yenile", "force")
+
     pf = await to_thread(portfolio.get_portfolio, user.id)
     cash = await to_thread(get_cash, user.id)
+
+    if force:
+        await update.message.reply_text("🔍 Taze tarama başlıyor (1-2 dk sürebilir)...")
+        picker.refresh_scores(force=True)
+        result = await to_thread(picker.pick, plan, pf["positions"], cash)
+        await update.message.reply_text(picker.pick_message(result))
+        return
+
+    if not picker.scores_ready():
+        await update.message.reply_text(
+            "🔍 İlk tarama yapılıyor (bir kez ~1 dk bekleyeceksin, sonra anında döner)..."
+        )
+        result = await to_thread(picker.pick, plan, pf["positions"], cash)
+        await update.message.reply_text(picker.pick_message(result))
+        return
+
+    # Onbellek sicak: arka planda tazele, aninda sonuc ver
+    stale = not picker.scores_fresh()
+    if stale:
+        picker.refresh_in_background()
     result = await to_thread(picker.pick, plan, pf["positions"], cash)
-    await update.message.reply_text(picker.pick_message(result))
+    msg = picker.pick_message(result)
+    if stale:
+        msg += "\n🔄 Fiyatlar arka planda güncelleniyor; 2 dk sonra tazesi için: /oner taze"
+    await update.message.reply_text(msg)
 
 
 @restricted
@@ -1163,6 +1186,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("dolar", cmd_fx))
     app.add_handler(CommandHandler("asistan", cmd_assistant))
     app.add_handler(CommandHandler("durum", cmd_status))
+    app.add_handler(CommandHandler("durumum", cmd_status))
     app.add_handler(CommandHandler("nakit", cmd_cash))
     app.add_handler(CommandHandler("maasgunu", cmd_salary_day))
     app.add_handler(CommandHandler("dengele", cmd_rebalance))

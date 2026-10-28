@@ -3,11 +3,13 @@
 Kullanici secim yapmaz; bot guvenli ve riskli havuzu teknik sinyallerle tarar,
 profiline uygun karisimi tutarlarla birlikte onerir.
 
-- Guvenli havuz: endeks + buyuk hisseler + altin + ABD devleri
-- Riskli havuz: buyume hisseleri + kripto
-- Profil dagilimi: sakin %80/20, dengeli %60/40, atilgan %40/60
+HIZ: Havuz taramasi (31 varlik) pahalidir; sonuclar 30 dk onbelleklenir.
+/oner cagrisi onbellekten aninda doner, arka planda tazeleme yapilir.
 """
+import threading
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 from services import market_data as md, signals
 
@@ -41,19 +43,56 @@ _SIMPLE = {
     "GÜÇLÜ SAT": "teknik göstergeler oldukça olumsuz",
 }
 
+# ---- Havuz tarama onbellegi (31 varlik taramasi pahali) ----
+_SCORE_CACHE: dict[str, dict] = {}
+_SCORE_TS: float = 0.0
+_SCORE_TTL = 30 * 60  # 30 dakika
+_scan_lock = threading.Lock()
+
+
+def _score_one(sym: str):
+    try:
+        return signals.score_symbol(sym)
+    except Exception:
+        return None
+
+
+def refresh_scores(force: bool = False) -> None:
+    """Havuzdaki tum sembolleri tarar ve onbellege yazar (bloklayici)."""
+    global _SCORE_TS
+    now = time.time()
+    if not force and now - _SCORE_TS < _SCORE_TTL:
+        return
+    with _scan_lock:
+        if not force and now - _SCORE_TS < _SCORE_TTL:
+            return
+        pool = list(dict.fromkeys(SAFE_POOL + RISKY_POOL))
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            results = list(ex.map(_score_one, pool))
+        for sym, sig in zip(pool, results):
+            if sig:
+                _SCORE_CACHE[sym] = sig
+        _SCORE_TS = time.time()
+
+
+def refresh_in_background(force: bool = False) -> None:
+    """Taramayi arka planda yapar; cagri aninda doner."""
+    threading.Thread(target=refresh_scores, args=(force,), daemon=True).start()
+
+
+def scores_fresh() -> bool:
+    """Onbellekte taze veri var mi?"""
+    return bool(_SCORE_CACHE) and (time.time() - _SCORE_TS < _SCORE_TTL)
+
+
+def scores_ready() -> bool:
+    """En az bir kez tarama yapildi mi (ilk kullanim bloklayici olur)."""
+    return bool(_SCORE_CACHE)
+
 
 def _scan(pool: list[str]) -> dict[str, dict]:
-    """Havuzdaki sembolleri tarar, skoru >= esik olanlari dondurur."""
-    out: dict[str, dict] = {}
-    for sym in pool:
-        try:
-            sig = signals.score_symbol(sym)
-        except Exception:
-            continue
-        if not sig:
-            continue
-        out[sym] = sig
-    return out
+    """Havuz skorlarini onbellekten okur."""
+    return {s: _SCORE_CACHE[s] for s in pool if s in _SCORE_CACHE}
 
 
 def _amounts(scores: list[dict], budget: float) -> dict[str, float]:
@@ -76,6 +115,11 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
        "risky": [ ... ],
        "sells": [ {symbol, score, signal, amount} ]}
     """
+    if not scores_ready():
+        refresh_scores(force=True)  # ilk kullanimda bloklar (bir kez)
+    else:
+        refresh_scores()  # TTL gectiyse yeniler, degilse aninda doner
+
     risk = plan.get("risk", "dengeli")
     safe_pct, risky_pct = _PROFILE_SPLIT.get(risk, (60, 40))
     invest_share = plan.get("invest_share", 0.0)
