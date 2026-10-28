@@ -1,0 +1,12 @@
+    [_btn("📌 Bugün ne yapmalıyım?", "menu:today")],
+            [_btn("📋 Planım", "menu:plan")],
+            [_btn("💡 Bana öğret", "menu:tip")],
+        ]
+    )
+    await update.message.reply_text(
+        "🤖 <b>Asistan Menüsü</b>\n\nSana nasıl yardımcı olayım?", reply_markup=kb
+    )
+
+
+@restricted
+async def cmd_status(update: Update, context: Cont

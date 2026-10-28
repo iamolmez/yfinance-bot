@@ -1,0 +1,8 @@
+@restricted
+async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    arg = _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/analiz THYAO</code>")
+        return
+    resolved = await to_thread(md.resolve_symbol, arg)
+    if not resolved
