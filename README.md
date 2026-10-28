@@ -48,6 +48,10 @@ Bugün harcama yaptın mı?
 | 💬 **Doğal dil** | "BTC ne durumda?", "THYAO alınır mı?", "Bu ay ne kadar harcadım?" |
 | 🔔 **Takip listesi** | `/takip`, `/takipler`, `/silah` |
 | 🎯 **Sinyal taraması** | `/sinyal` (otomatik saatlik tarama) |
+| 🤖 **Otomatik seçim** | `/oner` — bot kendisi hisse seçer (güvenli + riskli karışımı, tutarlı) |
+| ⚖️ **Dengeleme** | `/dengele` — plan hedefine göre ne alıp ne satacağını söyler |
+| 💰 **Nakit takibi** | `/nakit` — eldeki para + toplam servet |
+| 📆 **Maaş günü** | `/maasgunu 8` — maaş gününü ayarla (8'inde hatırlatır) |
 | 🔔 **Fiyat alarmı** | `/alarm THYAO 300 ust` |
 | ⚡ **Ani hareket alarmı** | %5+ günlük hareket → anında bildirim (otomatik) |
 | 💼 **Portföy** | `/ekle`, `/sat`, `/portfoy`, `/islemler` (FIFO kar/zarar) |
@@ -62,6 +66,7 @@ Bugün harcama yaptın mı?
 | her 3 dk | 🔔 Fiyat alarmları + ⚡ ani hareket kontrolü |
 | saatlik | 🎯 Sinyal taraması (güçlü sinyaller bildirilir) |
 | 12:00 | 📈 Yatırım hedefi hatırlatması (ayın 15'i ve 28'i) |
+| 15:00 | 🤖 Otomatik hisse seçimi (planına göre güvenli + riskli öneriler) |
 | 18:30 | 📅 Gün sonu özeti (portföy + sinyaller + günün hareketleri) |
 | 19:00 | 📑 Haftalık rapor (Pazar) |
 | 20:00 | 🌙 Akşam harcama kontrolü (interaktif soru) |
