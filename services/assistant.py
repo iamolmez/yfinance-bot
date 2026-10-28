@@ -23,24 +23,35 @@ GOAL_LABELS = {
     "kisa_vade": "⚡ Kısa vadede kazanç",
 }
 
-# Risk profiline gore BASIT dagilim onerileri (isim, yuzde)
+# Risk profiline gore BASIT dagilim onerileri.
+# Anahtar: varlik sinifi -> (gorunen isim, yuzde). Siniflar:
+#   stocks (hisse), gold (altin), cash (doviz/nakit), crypto (kripto)
 _RISK_ALLOC = {
-    "sakin": [
-        ("🥇 Altın", 40),
-        ("💵 Döviz (USD)", 30),
-        ("📊 BIST endeks (XU100)", 30),
-    ],
-    "dengeli": [
-        ("📊 BIST endeks + büyük hisseler", 50),
-        ("🥇 Altın", 30),
-        ("💵 Döviz / nakit", 20),
-    ],
-    "atilgan": [
-        ("📈 Hisse senetleri (BIST + ABD)", 60),
-        ("🥇 Altın", 15),
-        ("🪙 Kripto (en fazla %15)", 15),
-        ("💵 Nakit / döviz", 10),
-    ],
+    "sakin": {
+        "gold": ("🥇 Altın", 40),
+        "cash": ("💵 Döviz / nakit", 30),
+        "stocks": ("📊 BIST endeks (XU100)", 30),
+        "crypto": ("🪙 Kripto", 0),
+    },
+    "dengeli": {
+        "stocks": ("📊 BIST endeks + büyük hisseler", 50),
+        "gold": ("🥇 Altın", 30),
+        "cash": ("💵 Döviz / nakit", 20),
+        "crypto": ("🪙 Kripto", 0),
+    },
+    "atilgan": {
+        "stocks": ("📈 Hisse senetleri (BIST + ABD)", 60),
+        "gold": ("🥇 Altın", 15),
+        "crypto": ("🪙 Kripto (en fazla %15)", 15),
+        "cash": ("💵 Nakit / döviz", 10),
+    },
+}
+
+_CLASS_LABELS = {
+    "stocks": "📈 Hisse senetleri (BIST + ABD)",
+    "gold": "🥇 Altın",
+    "cash": "💵 Döviz / nakit",
+    "crypto": "🪙 Kripto",
 }
 
 TIPS = [
@@ -88,8 +99,8 @@ def build_plan(salary: float, expenses: float, risk: str, goal: str,
     invest_share = max(savings - emergency_share, 0.0)
 
     suggestions = [
-        {"name": name, "pct": pct, "amount": round(invest_share * pct / 100, 2)}
-        for name, pct in _RISK_ALLOC[risk]
+        {"name": name, "pct": pct, "amount": round(invest_share * pct / 100, 2), "class": cls}
+        for cls, (name, pct) in _RISK_ALLOC[risk].items() if pct > 0
     ]
 
     return {
@@ -197,6 +208,115 @@ def today_action(plan: dict | None, saved: float, invested_month: float,
 
 def _fmt(v: float) -> str:
     return f"{v:,.2f} ₺"
+
+
+# ---------------- Dengeleme ("ne alayim, ne satayim") ----------------
+
+def classify_symbol(sym: str) -> str:
+    """Portfoydeki bir sembolu varlik sinifina esler."""
+    from services import market_data as md
+    kind = md.kind_of(sym)
+    if kind == "crypto":
+        return "crypto"
+    if kind in ("bist", "us"):
+        return "stocks"
+    if kind == "commodity":
+        return "gold"
+    return "cash"  # doviz (TRY=X, EURTRY=X) nakit sayilir
+
+
+def rebalance(plan: dict, positions: list, cash: float) -> dict:
+    """Hedef dagilima gore al/sat onerileri uretir.
+
+    positions: portfolio.Position nesneleri (symbol, market_value olan).
+    Donus: {"total", "cash", "invested", "target", "buys": [(class, cur, tgt, amount)],
+            "sells": [(class, cur, tgt, amount)]}
+    """
+    from collections import defaultdict
+
+    total = cash + sum(p.market_value for p in positions)
+    if total <= 0:
+        return {"total": 0.0, "cash": cash, "invested": 0.0,
+                "target": {}, "buys": [], "sells": []}
+
+    target = {cls: pct for cls, (_name, pct) in _RISK_ALLOC[plan["risk"]].items()}
+    current: dict[str, float] = defaultdict(float)
+    for p in positions:
+        current[classify_symbol(p.symbol)] += p.market_value
+
+    buys: list = []
+    sells: list = []
+    threshold = total * 0.03  # %3'un altindaki sapmalar onemsiz
+
+    for cls, tgt_pct in target.items():
+        tgt = total * tgt_pct / 100
+        cur = current.get(cls, 0.0)
+        diff = tgt - cur
+        if tgt_pct == 0:
+            if cur >= threshold:
+                sells.append((cls, cur, tgt, cur))  # tamamini azalt
+        elif diff >= threshold:
+            buys.append((cls, cur, tgt, diff))
+        elif diff <= -threshold:
+            sells.append((cls, cur, tgt, -diff))
+
+    # Alimlar toplamda eldeki nakti asamamasin
+    total_buy = sum(b[3] for b in buys)
+    if total_buy > cash and total_buy > 0:
+        ratio = cash / total_buy
+        buys = [(cls, cur, tgt, amt * ratio) for cls, cur, tgt, amt in buys]
+        buys = [b for b in buys if b[3] >= threshold]
+
+    return {
+        "total": total,
+        "cash": cash,
+        "invested": total - cash,
+        "target": target,
+        "buys": buys,
+        "sells": sells,
+    }
+
+
+def rebalance_message(plan: dict, positions: list, cash: float) -> str:
+    r = rebalance(plan, positions, cash)
+    lines = ["🎯 <b>Ne Alayım / Ne Satayım?</b>"]
+    if r["total"] <= 0:
+        lines.append("Portföyün boş ve nakitin yok. Önce /nakit ile başla, "
+                     "sonra planına göre yatırım yap: /sinyal")
+        return "\n".join(lines)
+
+    lines.append(f"🏦 Toplam servet: {_fmt(r['total'])}")
+    lines.append(f"💵 Nakit: {_fmt(r['cash'])} | 📈 Yatırım: {_fmt(r['invested'])}")
+    lines.append("")
+    lines.append("<b>Hedef dağılım:</b> " + " | ".join(
+        f"{_CLASS_LABELS[cls]} %{pct}" for cls, pct in r["target"].items() if pct > 0
+    ))
+
+    if not r["buys"] and not r["sells"]:
+        lines += ["", "🎉 Dağılımın hedefine çok yakın, değişiklik gerekmiyor."]
+        return "\n".join(lines)
+
+    if r["buys"]:
+        lines += ["", "🟢 <b>Al / ekle:</b>"]
+        for cls, cur, tgt, amt in r["buys"]:
+            lines.append(f"• {_CLASS_LABELS[cls]}: şu an %{cur / r['total'] * 100:.0f} "
+                         f"→ hedef %{tgt / r['total'] * 100:.0f} "
+                         f"(<b>{_fmt(amt)}</b> daha)")
+    if r["sells"]:
+        lines += ["", "🔴 <b>Sat / azalt:</b>"]
+        for cls, cur, tgt, amt in r["sells"]:
+            lines.append(f"• {_CLASS_LABELS[cls]}: şu an %{cur / r['total'] * 100:.0f} "
+                         f"→ hedef %{tgt / r['total'] * 100:.0f} "
+                         f"(<b>{_fmt(amt)}</b> değerinde)")
+
+    lines += [
+        "",
+        "💡 Alım için: /sinyal (fırsatları gösterir)",
+        "💡 Satış sonrası parayı nakde ekle: /sat SYMBOL ADET FIYAT",
+        "",
+        "⚠️ <i>Bu bir plan dengeleme aracıdır, yatırım tavsiyesi değildir.</i>",
+    ]
+    return "\n".join(lines)
 
 
 def plan_to_json(p: dict) -> str:

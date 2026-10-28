@@ -19,11 +19,13 @@ from services import market_data as md
 # Yuksek oncelikli niyet anahtar kelimeleri (sembolden once kontrol edilir)
 _STRONG = {
     "expense": ["harcad", "harcama", "masraf", "gider", "kalan", "butcem", "bütçem", "bütçe"],
-    "portfolio": ["portfoy", "portföy", "hisse senedim", "yatırımım", "ne kadar param", "varlıklarım", "servetim", "param ne kadar"],
+    "cash": ["nakit", "eldeki para", "ne kadar param", "ne kadar para", "bankada", "hesabımda"],
+    "rebalance": ["dengele", "ne alayım ne satayım", "ne alayim ne satayim", "al sat", "dağılımı dengele", "dagilimi dengele", "ne alıp ne satayım", "ne alip ne satayim"],
+    "portfolio": ["portfoy", "portföy", "hisse senedim", "yatırımım", "varlıklarım", "servetim", "param ne kadar"],
     "plan": ["planım", "planımı", "plan", "maaş", "maas", "dagilim", "dağılım"],
     "tip": ["ogret", "öğret", "bilgi ver", "ipucu", "eğitim", "egitim", "bilgilendir", "öğren", "ders ver"],
     "status": ["durumum", "genel durum", "özet çıkar", "ozet cikar", "rapor çıkar"],
-    "signals": ["sinyal", "alınır mı", "alinir mi", "alınmalı", "firsat", "fırsat", "ne alayım", "ne almalıyım", "öneri", "oneri", "tavsiye", "hisse öner"],
+    "signals": ["sinyal", "alınır mı", "alinir mi", "alınmalı", "firsat", "fırsat", "ne almalıyım", "öneri", "oneri", "tavsiye", "hisse öner"],
 }
 
 # Sembol aramasinda atlanacak yaygin kelimeler

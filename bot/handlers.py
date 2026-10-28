@@ -17,18 +17,22 @@ from telegram.ext import (
 import config
 from database import (
     add_alert,
+    add_cash,
     add_emergency_savings,
     add_watch,
     clear_pending_expense,
     delete_alert,
     get_alerts,
+    get_cash,
     get_transactions,
     get_user_plan,
     get_watchlist,
     has_pending_expense,
     register_user,
     remove_watch,
+    set_cash,
     set_pending_expense,
+    set_user_plan,
 )
 from services import assistant, budget, charts, indicators as ind, market_data as md, nlp, portfolio, signals
 
@@ -432,11 +436,15 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
     verb = "ALIŞ" if side == "BUY" else "SATIŞ"
     if side == "BUY":
         await to_thread(portfolio.buy, update.effective_user.id, sym, qty, price, cur, note)
+        cash_delta = -(qty * price)
     else:
         await to_thread(portfolio.sell, update.effective_user.id, sym, qty, price, cur, note)
+        cash_delta = qty * price
+    new_balance = await to_thread(add_cash, update.effective_user.id, cash_delta)
     await update.message.reply_text(
         f"✅ <b>{verb} kaydedildi</b>\n"
-        f"📌 {sym}: {qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}"
+        f"📌 {sym}: {qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}\n"
+        f"💰 Nakit: {new_balance:,.2f} ₺"
     )
 
 
@@ -509,8 +517,10 @@ async def cmd_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Tutar pozitif olmalı.")
         return
     await to_thread(budget.record_expense, update.effective_user.id, amount, category, note)
+    new_balance = await to_thread(add_cash, update.effective_user.id, -amount)
     await update.message.reply_text(
-        f"✅ Harcama kaydedildi: <b>{fmt_money(amount, 'TRY')}</b> — {category}"
+        f"✅ Harcama kaydedildi: <b>{fmt_money(amount, 'TRY')}</b> — {category}\n"
+        f"💰 Kalan nakit: {new_balance:,.2f} ₺"
     )
 
 
@@ -663,6 +673,8 @@ async def cmd_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup(
         [
             [_btn("📊 Durumum", "menu:status")],
+            [_btn("💰 Eldeki nakit", "menu:cash")],
+            [_btn("🎯 Ne alayım / satayım", "menu:rebalance")],
             [_btn("📌 Bugün ne yapmalıyım?", "menu:today")],
             [_btn("📋 Planım", "menu:plan")],
             [_btn("💡 Bana öğret", "menu:tip")],
@@ -681,11 +693,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if plan_row:
         plan = assistant.plan_from_json(plan_row["plan"])
         lines.append(assistant.emergency_status(plan, plan_row["emergency_saved"] or 0))
+        cash = await to_thread(get_cash, user.id)
         rep = budget.get_month_report(user.id)
-        lines.append(f"💰 Bu ay kalan: <b>{rep['remaining']:,.2f} ₺</b>")
+        lines.append(f"💰 Eldeki nakit: <b>{cash:,.2f} ₺</b>")
+        lines.append(f"🧾 Bu ay kalan bütçe: <b>{rep['remaining']:,.2f} ₺</b>")
         lines.append(f"📈 Yatırım: {rep['invested']:,.2f} / {rep['invest_target']:,.2f} ₺ "
                      f"(%{rep['invest_pct']:.0f})")
-        lines.append(f"🧾 Harcama: {rep['total_expense']:,.2f} ₺ ({rep['n_expenses']} kayıt)")
+        lines.append(f"📋 Harcama: {rep['total_expense']:,.2f} ₺ ({rep['n_expenses']} kayıt)")
     else:
         lines.append("📋 Planın yok. /basla ile 2 dakikada oluştur.")
         return await update.message.reply_text("\n".join(lines))
@@ -715,6 +729,10 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "status":
         await cmd_status(update, context)
+    elif action == "cash":
+        await cmd_cash(update, None)
+    elif action == "rebalance":
+        await cmd_rebalance(update, None)
     elif action == "today":
         rep = budget.get_month_report(user.id)
         text = assistant.today_action(plan, saved, rep["invested"], rep["invest_target"])
@@ -762,8 +780,10 @@ async def salary_received_callback(update: Update, context: ContextTypes.DEFAULT
     plan = assistant.plan_from_json(plan_row["plan"])
     add_emergency_savings(user.id, plan["emergency_share"])
     new_saved = (plan_row["emergency_saved"] or 0) + plan["emergency_share"]
+    new_cash = await to_thread(add_cash, user.id, plan["salary"])
     lines = [
         "🎉 <b>Yeni ay başladı, planın hazır!</b>\n",
+        f"💰 Maaşın eklendi, eldeki nakit: <b>{new_cash:,.2f} ₺</b>",
         f"🏠 Zorunlu giderler: {plan['needs']:,.2f} ₺",
         f"🎉 İsteğe bağlı: {plan['wants']:,.2f} ₺",
         f"💾 Birikim: {plan['savings']:,.2f} ₺ "
@@ -798,6 +818,12 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
     if action == "expense":
         await cmd_budget(update, None)
         return True
+    if action == "cash":
+        await cmd_cash(update, None)
+        return True
+    if action == "rebalance":
+        await cmd_rebalance(update, None)
+        return True
     if action == "portfolio":
         await cmd_portfolio(update, None)
         return True
@@ -822,6 +848,80 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
 
 
 @restricted
+async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/nakit [TUTAR] — eldeki nakdi gosterir veya ayarlar."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    if arg:
+        val = parse_number(arg)
+        if val is None or val < 0:
+            await update.message.reply_text("❌ Geçersiz tutar. Örn: <code>/nakit 20000</code>")
+            return
+        balance = await to_thread(set_cash, user.id, val)
+        await update.message.reply_text(
+            f"💰 Nakit bakiyen <b>{balance:,.2f} ₺</b> olarak ayarlandı.\n"
+            "Bundan sonra maaş/harcama/alım/satışlar otomatik güncellenir."
+        )
+        return
+
+    cash = await to_thread(get_cash, user.id)
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    invested = sum(p.market_value for p in pf["positions"])
+    total = cash + invested
+    lines = [
+        "💰 <b>Eldeki Para Durumu</b>",
+        f"💵 Nakit: <b>{cash:,.2f} ₺</b>",
+        f"📈 Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)",
+        f"🏦 Toplam servet: <b>{total:,.2f} ₺</b>",
+    ]
+    if total <= 0:
+        lines.append("", "İlk bakiyeni gir: <code>/nakit 20000</code>")
+    lines.append("", "Dağılımı dengelemek için: /dengele")
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_salary_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/maasgunu GUN — maas gununu degistirir (onboarding'i bozmadan)."""
+    user = update.effective_user
+    arg = _arg(context, 0)
+    if not arg or not arg.isdigit() or not (1 <= int(arg) <= 31):
+        await update.message.reply_text(
+            "Kullanım: <code>/maasgunu 8</code>\n"
+            "Maaşını ayın kaçında alıyorsan o sayıyı yaz (1-31)."
+        )
+        return
+    day = int(arg)
+    plan_row = get_user_plan(user.id)
+    if not plan_row:
+        await update.message.reply_text("📋 Önce plan kur: <code>/basla</code>")
+        return
+    plan = assistant.plan_from_json(plan_row["plan"])
+    plan["salary_day"] = day
+    set_user_plan(user.id, plan["salary"], plan["expenses"], plan["risk"], plan["goal"],
+                  day, plan["emergency_target"], assistant.plan_to_json(plan))
+    await update.message.reply_text(
+        f"📆 Maaş günün <b>ayın {day}. günü</b> olarak güncellendi.\n"
+        "Her ay o gün sana dağılımı hatırlatacağım. 🎉"
+    )
+
+
+@restricted
+async def cmd_rebalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/dengele — plan hedefine gore al/sat onerileri."""
+    user = update.effective_user
+    plan_row = get_user_plan(user.id)
+    if not plan_row:
+        await update.message.reply_text("📋 Önce plan kur: <code>/basla</code>")
+        return
+    plan = assistant.plan_from_json(plan_row["plan"])
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    cash = await to_thread(get_cash, user.id)
+    msg = assistant.rebalance_message(plan, pf["positions"], cash)
+    await update.message.reply_text(msg)
+
+
+@restricted
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serbest metin: harcama kaydi, dogal dil komutu veya yardim menusu."""
     user = update.effective_user
@@ -836,10 +936,12 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         budget.record_expense(user.id, amount, category)
         clear_pending_expense(user.id)
+        new_balance = await to_thread(add_cash, user.id, -amount)
         rep = budget.get_month_report(user.id)
         await update.message.reply_text(
             f"✅ <b>{amount:,.2f} ₺</b> ({category}) kaydedildi!\n"
-            f"Bu ay kalan: <b>{rep['remaining']:,.2f} ₺</b>\n\n"
+            f"💰 Kalan nakit: <b>{new_balance:,.2f} ₺</b>\n"
+            f"🧾 Bu ay kalan bütçe: <b>{rep['remaining']:,.2f} ₺</b>\n\n"
             "İyi iş! Her harcamayı kaydetmek bütçeni korur. 💪"
         )
         return
@@ -901,6 +1003,9 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("dolar", cmd_fx))
     app.add_handler(CommandHandler("asistan", cmd_assistant))
     app.add_handler(CommandHandler("durum", cmd_status))
+    app.add_handler(CommandHandler("nakit", cmd_cash))
+    app.add_handler(CommandHandler("maasgunu", cmd_salary_day))
+    app.add_handler(CommandHandler("dengele", cmd_rebalance))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))

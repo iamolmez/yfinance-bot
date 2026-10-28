@@ -156,13 +156,48 @@ def main():
     check("pg INSERT budgets RETURNING", s4.endswith("RETURNING user_id"), s4)
     # schema parcalama + AUTOINCREMENT -> SERIAL
     stmts = [x.strip() for x in dbmod._SCHEMA.split(";") if x.strip()]
-    check("schema stmt sayisi (8 tablo + 4 indeks)", len(stmts) == 12, f"{len(stmts)} stmt")
+    check("schema stmt sayisi (9 tablo + 4 indeks)", len(stmts) == 13, f"{len(stmts)} stmt")
     tables = [x for x in stmts if x.startswith("CREATE TABLE")]
-    check("8 tablo", len(tables) == 8, f"{len(tables)} tablo")
+    check("9 tablo", len(tables) == 9, f"{len(tables)} tablo")
     watch_stmt = next(x for x in stmts if "watchlist" in x and "CREATE TABLE" in x)
     pg_watch = watch_stmt.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
     check("pg AUTOINCREMENT -> SERIAL", "SERIAL PRIMARY KEY" in pg_watch and "AUTOINCREMENT" not in pg_watch)
     check("pg schema '?' yok", all("?" not in x for x in stmts))
+
+    print("== Nakit hesabi ==")
+    from database import add_cash, get_cash, set_cash
+    set_cash(USER, 20000)
+    check("set_cash 20000", get_cash(USER) == 20000)
+    add_cash(USER, -1500)
+    check("add_cash -1500", get_cash(USER) == 18500)
+    add_cash(USER, 50000)
+    check("add_cash maas +50000", get_cash(USER) == 68500)
+
+    print("== Dengeleme ==")
+    from services import assistant as asst
+    # Canta: 30k hisse (stocks), 10k kripto, 10k nakit; toplam 50k
+    class FakePos:
+        def __init__(self, sym, mv):
+            self.symbol, self.market_value = sym, mv
+    check("classify .IS -> stocks", asst.classify_symbol("THYAO.IS") == "stocks")
+    check("classify BTC -> crypto", asst.classify_symbol("BTC-USD") == "crypto")
+    check("classify GC=F -> gold", asst.classify_symbol("GC=F") == "gold")
+    check("classify TRY=X -> cash", asst.classify_symbol("TRY=X") == "cash")
+
+    plan = assistant.build_plan(50000, 25000, "dengeli", "acil_fon", 8)
+    pos = [FakePos("THYAO.IS", 30000), FakePos("BTC-USD", 10000)]
+    r = asst.rebalance(plan, pos, cash=10000)
+    check("rebalance total 50000", abs(r["total"] - 50000) < 1, str(r["total"]))
+    # dengeli hedef: stocks 50 (25000), gold 30 (15000), cash 20 (10000), crypto 0
+    # mevcut: stocks 30000, crypto 10000, cash 10000
+    # -> stocks asiri (30000 > 25000) SAT ~5000; crypto SAT ~10000; gold eksik AL ~15000 (nakit 10000 ile sinirli)
+    sell_classes = {s[0] for s in r["sells"]}
+    check("crypto satilmali", "crypto" in sell_classes, str(sell_classes))
+    buy_classes = {b[0] for b in r["buys"]}
+    check("gold alinmali", "gold" in buy_classes, str(buy_classes))
+    total_buy = sum(b[3] for b in r["buys"])
+    check("alimlar nakti asmaz", total_buy <= 10000 + 1, f"buy={total_buy}")
+    check("rebalance_message", "Ne Alayım" in asst.rebalance_message(plan, pos, 10000))
 
     print()
     if FAIL:

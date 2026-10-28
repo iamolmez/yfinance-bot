@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS pending_expense (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS cash (
+    user_id    INTEGER PRIMARY KEY,
+    balance    REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_txn_user   ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_exp_user   ON expenses(user_id);
 CREATE INDEX IF NOT EXISTS idx_watch_user ON watchlist(user_id);
@@ -448,3 +454,32 @@ def clear_pending_expense(user_id: int) -> None:
 def has_pending_expense(user_id: int) -> bool:
     row = query_one("SELECT 1 FROM pending_expense WHERE user_id = ?", (user_id,))
     return row is not None
+
+
+# ---------------- Nakit hesabi (eldeki para) ----------------
+
+def get_cash(user_id: int) -> float:
+    row = query_one("SELECT balance FROM cash WHERE user_id = ?", (user_id,))
+    return float(row["balance"]) if row else 0.0
+
+
+def add_cash(user_id: int, amount: float) -> float:
+    """Nakti gunceller. Yeni bakiyeyi dondurur."""
+    execute(
+        "INSERT INTO cash (user_id, balance, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "balance = cash.balance + excluded.balance, updated_at = excluded.updated_at",
+        (user_id, amount, now_iso()),
+    )
+    return get_cash(user_id)
+
+
+def set_cash(user_id: int, amount: float) -> float:
+    """Nakti dogrudan ayarlar (baslangic bakiyesi / duzeltme)."""
+    execute(
+        "INSERT INTO cash (user_id, balance, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "balance = excluded.balance, updated_at = excluded.updated_at",
+        (user_id, amount, now_iso()),
+    )
+    return get_cash(user_id)
