@@ -34,7 +34,7 @@ from database import (
     set_pending_expense,
     set_user_plan,
 )
-from services import assistant, budget, charts, indicators as ind, market_data as md, nlp, portfolio, signals
+from services import assistant, budget, charts, indicators as ind, market_data as md, nlp, picker, portfolio, signals
 
 CUR_SYM = {"TRY": "₺", "USD": "$"}
 
@@ -674,7 +674,8 @@ async def cmd_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             [_btn("📊 Durumum", "menu:status")],
             [_btn("💰 Eldeki nakit", "menu:cash")],
-            [_btn("🎯 Ne alayım / satayım", "menu:rebalance")],
+            [_btn("🎯 Otomatik hisse seç", "menu:pick")],
+            [_btn("⚖️ Ne alayım / satayım", "menu:rebalance")],
             [_btn("📌 Bugün ne yapmalıyım?", "menu:today")],
             [_btn("📋 Planım", "menu:plan")],
             [_btn("💡 Bana öğret", "menu:tip")],
@@ -731,6 +732,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_status(update, context)
     elif action == "cash":
         await cmd_cash(update, None)
+    elif action == "pick":
+        await cmd_pick(update, None)
     elif action == "rebalance":
         await cmd_rebalance(update, None)
     elif action == "today":
@@ -823,6 +826,9 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
         return True
     if action == "rebalance":
         await cmd_rebalance(update, None)
+        return True
+    if action == "pick":
+        await cmd_pick(update, None)
         return True
     if action == "portfolio":
         await cmd_portfolio(update, None)
@@ -922,6 +928,25 @@ async def cmd_rebalance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/oner — bot kendisi hisse secer (guvenli + riskli karisimi)."""
+    user = update.effective_user
+    plan_row = get_user_plan(user.id)
+    if not plan_row:
+        await update.message.reply_text(
+            "📋 Önce 2 dakikada planını kur: <code>/basla</code>\n"
+            "Böylece sana uygun riskli/güvenli karışımı seçebilirim."
+        )
+        return
+    plan = assistant.plan_from_json(plan_row["plan"])
+    await update.message.reply_text("🔍 Havuz taranıyor (30+ varlık), biraz bekleyin...")
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    cash = await to_thread(get_cash, user.id)
+    result = await to_thread(picker.pick, plan, pf["positions"], cash)
+    await update.message.reply_text(picker.pick_message(result))
+
+
+@restricted
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serbest metin: harcama kaydi, dogal dil komutu veya yardim menusu."""
     user = update.effective_user
@@ -1006,6 +1031,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("nakit", cmd_cash))
     app.add_handler(CommandHandler("maasgunu", cmd_salary_day))
     app.add_handler(CommandHandler("dengele", cmd_rebalance))
+    app.add_handler(CommandHandler("oner", cmd_pick))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))

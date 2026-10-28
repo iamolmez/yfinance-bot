@@ -20,6 +20,7 @@ from services import market_data as md
 _STRONG = {
     "expense": ["harcad", "harcama", "masraf", "gider", "kalan", "butcem", "bütçem", "bütçe"],
     "cash": ["nakit", "eldeki para", "ne kadar param", "ne kadar para", "bankada", "hesabımda"],
+    "pick": ["sen seç", "sen sec", "otomatik seç", "otomatik sec", "kendin seç", "kendin sec", "bana hisse öner", "bana hisse oner", "hisse öner", "hisse oner", "ne alsam", "ne alayım sen seç", "sen karar ver"],
     "rebalance": ["dengele", "ne alayım ne satayım", "ne alayim ne satayim", "al sat", "dağılımı dengele", "dagilimi dengele", "ne alıp ne satayım", "ne alip ne satayim"],
     "portfolio": ["portfoy", "portföy", "hisse senedim", "yatırımım", "varlıklarım", "servetim", "param ne kadar"],
     "plan": ["planım", "planımı", "plan", "maaş", "maas", "dagilim", "dağılım"],

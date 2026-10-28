@@ -17,12 +17,13 @@ from telegram.ext import ContextTypes
 import config
 from database import (
     get_all_watchlists,
+    get_cash,
     get_user_plan,
     get_watchlist,
     query,
 )
 from services import alerts as alert_svc
-from services import assistant, budget, market_data as md, portfolio, signals
+from services import assistant, budget, market_data as md, picker, portfolio, signals
 from services.market_data import TZ_ISTANBUL
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,30 @@ async def weekly_report_job(context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Haftalik rapor gonderilemedi (%s): %s", user_id, e)
 
 
+async def auto_pick_job(context: ContextTypes.DEFAULT_TYPE):
+    """Her gun 15:00: plani olan kullanicilara otomatik alim onerileri."""
+    for user_id in config.ALLOWED_USER_IDS:
+        try:
+            plan_row = get_user_plan(user_id)
+            if not plan_row:
+                continue
+            plan = assistant.plan_from_json(plan_row["plan"])
+            if plan.get("invest_share", 0) <= 0:
+                continue
+            pf = await to_thread(portfolio.get_portfolio, user_id)
+            cash = await to_thread(get_cash, user_id)
+            result = await to_thread(picker.pick, plan, pf["positions"], cash)
+            if not result["safe"] and not result["risky"]:
+                continue  # bugun firsat yoksa rahatsiz etme
+            msg = (
+                "🕒 <b>Günlük Otomatik Seçim</b>\n"
+                + picker.pick_message(result)
+            )
+            await context.bot.send_message(chat_id=user_id, text=msg)
+        except Exception as e:
+            logger.warning("Otomatik secim gonderilemedi (%s): %s", user_id, e)
+
+
 def fmt(value: float, currency: str) -> str:
     sym = {"TRY": "₺", "USD": "$"}.get(currency, currency)
     return f"{value:,.2f} {sym}"
@@ -380,9 +405,16 @@ def setup_jobs(app) -> None:
         days=(6,),
         name="weekly_report",
     )
+    # Otomatik hisse secimi (her gun 15:00)
+    q.run_daily(
+        auto_pick_job,
+        time=dtime(hour=15, minute=0, tzinfo=TZ_ISTANBUL),
+        name="auto_pick",
+    )
     logger.info(
         "Zamanlanmis gorevler kuruldu: alarm=%ss, sinyal=%sdk, ozet=18:30, "
-        "asistan=09:00/20:00, maas=09:30, bist=10:05, yatirim=12:00, haftalik=Paz 19:00",
+        "asistan=09:00/20:00, maas=09:30, bist=10:05, yatirim=12:00, "
+        "otomatik secim=15:00, haftalik=Paz 19:00",
         config.ALERT_CHECK_SECONDS,
         config.SCAN_MINUTES,
     )

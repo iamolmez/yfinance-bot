@@ -199,6 +199,17 @@ def main():
     check("alimlar nakti asmaz", total_buy <= 10000 + 1, f"buy={total_buy}")
     check("rebalance_message", "Ne Alayım" in asst.rebalance_message(plan, pos, 10000))
 
+    print("== Otomatik secici ==")
+    from services import picker
+    _orig_safe, _orig_risky = picker.SAFE_POOL, picker.RISKY_POOL
+    picker.SAFE_POOL = ["THYAO.IS", "AAPL"]
+    picker.RISKY_POOL = ["BTC-USD", "SOL-USD"]
+    pres = picker.pick(plan, [], cash=5000)
+    picker.SAFE_POOL, picker.RISKY_POOL = _orig_safe, _orig_risky
+    check("picker cikti yapisi", "safe" in pres and "risky" in pres and "sells" in pres)
+    check("picker profil bolunmesi", pres["safe_pct"] == 60 and pres["risky_pct"] == 40, f"{pres['safe_pct']}/{pres['risky_pct']}")
+    check("picker mesaj", "Otomatik Seçimler" in picker.pick_message(pres))
+
     print()
     if FAIL:
         print(f"SONUC: {len(FAIL)} HATA -> {FAIL}")
