@@ -1,0 +1,7 @@
+python-telegram-bot[job-queue]>=22.0
+yfinance>=1.6
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.8
+python-dotenv>=1.0
+tzdata>=2024.1

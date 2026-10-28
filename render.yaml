@@ -1,0 +1,28 @@
+# Render Blueprint - https://render.com
+# Kullanim: render.com -> New -> Blueprint -> bu repo'nun public GitHub linki
+#
+# NOT: Render ucretsiz katmanda servisi 15 dk sessizlikten sonra uyutur.
+# Botun 7/24 kesintisiz calismasi icin "Always On" (ucretli) gerekir.
+# Ucretsiz kalici calisma icin Railway onerilir (bkz. railway.json).
+services:
+  - type: web
+    name: yfinance-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false        # Dashboard'dan guvenli sekilde set edilecek
+      - key: ALLOWED_USER_IDS
+        sync: false
+      - key: DB_PATH
+        value: /var/data/finance.db
+      - key: TZ
+        value: Europe/Istanbul
+    disk:
+      name: yfinance-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,350 @@
+"""SQLite veritabani katmani.
+
+Tablo:
+- users        : yetkili kullanicilar
+- watchlist    : takip listesi (izlenen hisseler)
+- transactions : portfoy islemleri (alis/satis)
+- budgets      : maas + aylik yatirim hedefi
+- expenses     : harcamalar (kategori bazli)
+- alerts       : fiyat alarmlari
+"""
+import sqlite3
+import threading
+from datetime import datetime
+
+from config import DB_PATH
+
+_lock = threading.Lock()
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id     INTEGER PRIMARY KEY,
+    username    TEXT,
+    first_name  TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    symbol      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    UNIQUE(user_id, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    symbol      TEXT NOT NULL,
+    side        TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
+    qty         REAL NOT NULL,
+    price       REAL NOT NULL,
+    currency    TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS budgets (
+    user_id      INTEGER PRIMARY KEY,
+    salary       REAL,
+    invest_amount REAL,
+    currency     TEXT DEFAULT 'TRY',
+    updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    amount      REAL NOT NULL,
+    category    TEXT NOT NULL,
+    note        TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL,
+    symbol       TEXT NOT NULL,
+    target_price REAL NOT NULL,
+    direction    TEXT NOT NULL CHECK(direction IN ('above','below')),
+    active       INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT NOT NULL,
+    triggered_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_plan (
+    user_id          INTEGER PRIMARY KEY,
+    salary           REAL,
+    expenses         REAL,
+    risk             TEXT,
+    goal             TEXT,
+    salary_day       INTEGER,
+    emergency_target REAL,
+    emergency_saved  REAL DEFAULT 0,
+    plan             TEXT,
+    created_at       TEXT,
+    updated_at       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pending_expense (
+    user_id    INTEGER PRIMARY KEY,
+    note       TEXT,
+    created_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_txn_user   ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_exp_user   ON expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_watch_user ON watchlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_user ON alerts(user_id);
+"""
+
+
+def _conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def init_db() -> None:
+    with _lock:
+        conn = _conn()
+        try:
+            conn.executescript(_SCHEMA)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def execute(sql: str, params: tuple = ()) -> int:
+    """Yazma islemleri. Etkilenen satir sayisini (veya rowid'yi) dondurur."""
+    with _lock:
+        conn = _conn()
+        try:
+            cur = conn.execute(sql, params)
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+
+def query(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+    conn = _conn()
+    try:
+        return conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+
+
+def query_one(sql: str, params: tuple = ()) -> sqlite3.Row | None:
+    conn = _conn()
+    try:
+        return conn.execute(sql, params).fetchone()
+    finally:
+        conn.close()
+
+
+# ---------------- Kullanicilar ----------------
+
+def register_user(user_id: int, username: str = "", first_name: str = "") -> None:
+    execute(
+        "INSERT OR IGNORE INTO users (user_id, username, first_name, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id, username or "", first_name or "", now_iso()),
+    )
+
+
+# ---------------- Takip listesi ----------------
+
+def add_watch(user_id: int, symbol: str) -> bool:
+    try:
+        execute(
+            "INSERT OR IGNORE INTO watchlist (user_id, symbol, created_at) VALUES (?, ?, ?)",
+            (user_id, symbol, now_iso()),
+        )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def remove_watch(user_id: int, symbol: str) -> bool:
+    cur_affected = execute(
+        "DELETE FROM watchlist WHERE user_id = ? AND symbol = ?", (user_id, symbol)
+    )
+    return cur_affected > 0
+
+
+def get_watchlist(user_id: int) -> list[sqlite3.Row]:
+    return query(
+        "SELECT symbol, created_at FROM watchlist WHERE user_id = ? ORDER BY created_at",
+        (user_id,),
+    )
+
+
+def get_all_watchlists() -> list[sqlite3.Row]:
+    return query("SELECT DISTINCT user_id, symbol FROM watchlist ORDER BY user_id")
+
+
+# ---------------- Islemler ----------------
+
+def add_transaction(user_id: int, symbol: str, side: str, qty: float, price: float,
+                    currency: str, note: str = "") -> int:
+    return execute(
+        "INSERT INTO transactions (user_id, symbol, side, qty, price, currency, note, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, symbol, side, qty, price, currency, note or "", now_iso()),
+    )
+
+
+def get_transactions(user_id: int, symbol: str | None = None,
+                     month: str | None = None) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM transactions WHERE user_id = ?"
+    params: list = [user_id]
+    if symbol:
+        sql += " AND symbol = ?"
+        params.append(symbol)
+    if month:
+        sql += " AND substr(created_at, 1, 7) = ?"
+        params.append(month)
+    sql += " ORDER BY created_at"
+    return query(sql, tuple(params))
+
+
+def get_transaction_symbols(user_id: int) -> list[str]:
+    rows = query(
+        "SELECT DISTINCT symbol FROM transactions WHERE user_id = ?", (user_id,)
+    )
+    return [r["symbol"] for r in rows]
+
+
+# ---------------- Butce ----------------
+
+def set_budget(user_id: int, salary: float, invest_amount: float, currency: str = "TRY") -> None:
+    execute(
+        "INSERT INTO budgets (user_id, salary, invest_amount, currency, updated_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "salary = excluded.salary, invest_amount = excluded.invest_amount, "
+        "currency = excluded.currency, updated_at = excluded.updated_at",
+        (user_id, salary, invest_amount, currency, now_iso()),
+    )
+
+
+def get_budget(user_id: int) -> sqlite3.Row | None:
+    return query_one("SELECT * FROM budgets WHERE user_id = ?", (user_id,))
+
+
+def add_expense(user_id: int, amount: float, category: str, note: str = "") -> int:
+    return execute(
+        "INSERT INTO expenses (user_id, amount, category, note, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, amount, category, note or "", now_iso()),
+    )
+
+
+def get_expenses(user_id: int, month: str | None = None) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM expenses WHERE user_id = ?"
+    params: list = [user_id]
+    if month:
+        sql += " AND substr(created_at, 1, 7) = ?"
+        params.append(month)
+    sql += " ORDER BY created_at DESC"
+    return query(sql, tuple(params))
+
+
+def get_expenses_by_category(user_id: int, month: str) -> list[sqlite3.Row]:
+    return query(
+        "SELECT category, SUM(amount) AS total, COUNT(*) AS cnt "
+        "FROM expenses WHERE user_id = ? AND substr(created_at, 1, 7) = ? "
+        "GROUP BY category ORDER BY total DESC",
+        (user_id, month),
+    )
+
+
+# ---------------- Alarmlar ----------------
+
+def add_alert(user_id: int, symbol: str, target_price: float, direction: str) -> int:
+    return execute(
+        "INSERT INTO alerts (user_id, symbol, target_price, direction, active, created_at) "
+        "VALUES (?, ?, ?, ?, 1, ?)",
+        (user_id, symbol, target_price, direction, now_iso()),
+    )
+
+
+def get_alerts(user_id: int | None = None, active_only: bool = False) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM alerts"
+    params: list = []
+    where = []
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(user_id)
+    if active_only:
+        where.append("active = 1")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC"
+    return query(sql, tuple(params))
+
+
+def deactivate_alert(alert_id: int, user_id: int) -> bool:
+    cur = execute(
+        "UPDATE alerts SET active = 0, triggered_at = ? WHERE id = ? AND user_id = ?",
+        (now_iso(), alert_id, user_id),
+    )
+    return cur > 0
+
+
+def delete_alert(alert_id: int, user_id: int) -> bool:
+    cur = execute("DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
+    return cur > 0
+
+
+# ---------------- Kullanici plani (asistan) ----------------
+
+def set_user_plan(user_id: int, salary: float, expenses: float, risk: str, goal: str,
+                  salary_day: int, emergency_target: float, plan_json: str) -> None:
+    execute(
+        "INSERT INTO user_plan (user_id, salary, expenses, risk, goal, salary_day, "
+        "emergency_target, emergency_saved, plan, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "salary = excluded.salary, expenses = excluded.expenses, risk = excluded.risk, "
+        "goal = excluded.goal, salary_day = excluded.salary_day, "
+        "emergency_target = excluded.emergency_target, plan = excluded.plan, "
+        "updated_at = excluded.updated_at",
+        (user_id, salary, expenses, risk, goal, salary_day, emergency_target,
+         plan_json, now_iso(), now_iso()),
+    )
+
+
+def get_user_plan(user_id: int) -> sqlite3.Row | None:
+    return query_one("SELECT * FROM user_plan WHERE user_id = ?", (user_id,))
+
+
+def add_emergency_savings(user_id: int, amount: float) -> None:
+    execute(
+        "UPDATE user_plan SET emergency_saved = emergency_saved + ?, updated_at = ? "
+        "WHERE user_id = ?",
+        (amount, now_iso(), user_id),
+    )
+
+
+# ---------------- Bekleyen harcama giris (akşam kontrolu) ----------------
+
+def set_pending_expense(user_id: int, note: str = "1") -> None:
+    execute(
+        "INSERT INTO pending_expense (user_id, note, created_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET note = excluded.note",
+        (user_id, note, now_iso()),
+    )
+
+
+def clear_pending_expense(user_id: int) -> None:
+    execute("DELETE FROM pending_expense WHERE user_id = ?", (user_id,))
+
+
+def has_pending_expense(user_id: int) -> bool:
+    row = query_one("SELECT 1 FROM pending_expense WHERE user_id = ?", (user_id,))
+    return row is not None

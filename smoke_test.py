@@ -1,0 +1,154 @@
+"""Smoke test: bot token olmadan tum cekirdek mantigi dogrular."""
+import os
+
+# .env icindeki ayarlari gormezden gel (test veritabani kullan)
+_TEST_DB = os.path.join(os.path.dirname(__file__), "test_finance.db")
+os.environ["DB_PATH"] = _TEST_DB
+if os.path.exists(_TEST_DB):
+    os.remove(_TEST_DB)  # her calistirmada temiz basla
+
+from database import init_db, get_transactions
+from services import budget, indicators as ind, market_data as md, portfolio, signals
+from services import alerts as alert_svc
+
+init_db()  # tablolari olustur
+
+USER = 12345
+FAIL = []
+
+
+def check(name, cond, extra=""):
+    status = "OK " if cond else "FAIL"
+    # Konsol kodlamasi Turkce/emoji karakterlerini basamayabilir (ornek: cp950)
+    line = f"  [{status}] {name}" + (f"  {extra}" if extra else "")
+    safe = line.encode("ascii", "replace").decode("ascii")
+    print(safe)
+    if not cond:
+        FAIL.append(name)
+
+
+def main():
+    print("== Sembol cozumleme ==")
+    for raw, expect_kind in [("THYAO", "bist"), ("AAPL", "us"), ("BTC", "crypto"),
+                             ("XU100", "bist"), ("USD", "fx"), ("GARAN", "bist")]:
+        res = md.resolve_symbol(raw)
+        check(f"{raw} -> {res}", res is not None and res[1] == expect_kind,
+              str(res) if res else "YOK")
+
+    print("== Fiyat verisi ==")
+    q = md.get_quote("THYAO.IS")
+    check("get_quote THYAO", q and q["price"] > 0 and q["currency"] == "TRY", str(q))
+    batch = md.get_quotes_batch(["THYAO.IS", "AAPL", "BTC-USD", "XU100.IS"])
+    check("get_quotes_batch (4 sembol)", len(batch) >= 3, f"{len(batch)}/{4} alindi")
+
+    print("== Indikatorler ==")
+    df = md.get_history("AAPL")
+    a = ind.full_analysis(df)
+    check("full_analysis", a["rsi"] > 0 and a["sma20"] > 0 and a["atr"] > 0,
+          f"RSI={a['rsi']:.1f} ATR={a['atr']:.2f}")
+    check("rsi_label", ind.rsi_label(30) == "Aşırı satım")
+
+    print("== Sinyal motoru ==")
+    sig = signals.score_symbol("AAPL")
+    check("score_symbol AAPL", sig is not None and "signal" in sig, str(sig["signal"]) if sig else "")
+    sigs = signals.scan_symbols(["THYAO.IS", "AAPL", "BTC-USD", "XU100.IS"])
+    check("scan_symbols (4)", len(sigs) >= 3, f"{len(sigs)} sinyal")
+
+    print("== Portfoy (FIFO) ==")
+    portfolio.buy(USER, "THYAO.IS", 100, 200, "TRY")
+    portfolio.buy(USER, "THYAO.IS", 100, 250, "TRY")
+    portfolio.sell(USER, "THYAO.IS", 100, 300, "TRY")  # ilk 100 lotu 200'den satar
+    pf = portfolio.get_portfolio(USER)
+    check("FIFO kalan 100 lot", pf["positions"] and pf["positions"][0].qty == 100,
+          f"qty={pf['positions'][0].qty if pf['positions'] else 0}")
+    check("FIFO gerceklesen +10000", abs(pf["positions"][0].realized_pnl - 10000) < 1,
+          f"realized={pf['positions'][0].realized_pnl:.2f}")
+
+    print("== Butce ==")
+    budget.set_plan(USER, 50000, 10000)
+    budget.record_expense(USER, 3000, "market")
+    budget.record_expense(USER, 1500, "fatura")
+    rep = budget.get_month_report(USER)
+    check("butce maas/harcama", rep["salary"] == 50000 and rep["total_expense"] == 4500,
+          f"harcama={rep['total_expense']}")
+    check("tasarruf orani", abs(rep["savings_rate"] - 91.0) < 0.01, f"%{rep['savings_rate']:.1f}")
+
+    print("== Alarm ==")
+    from database import add_alert, get_alerts
+    add_alert(USER, "AAPL", 1.0, "above")  # su anki fiyatin cok altinda -> aninda tetiklenir
+    triggered = alert_svc.check_all_alerts()
+    check("alarm tetikleme", any(t["user_id"] == USER for t in triggered),
+          f"{len(triggered)} tetiklendi")
+    check("alarm tek seferlik", get_alerts(USER, active_only=True) == [])
+
+    print("== Islem gecmisi ==")
+    txns = get_transactions(USER)
+    check("3 islem kaydi", len(txns) == 3, f"{len(txns)} islem")
+
+    print("== Asistan plani ==")
+    from services import assistant
+    plan = assistant.build_plan(50000, 25000, "dengeli", "acil_fon", 5)
+    check("plan maas bolunmesi", abs(plan["needs"] - 25000) < 1 and abs(plan["wants"] - 15000) < 1
+          and abs(plan["savings"] - 10000) < 1,
+          f"needs={plan['needs']} wants={plan['wants']} savings={plan['savings']}")
+    check("acil fon hedefi 6 ay", abs(plan["emergency_target"] - 150000) < 1, str(plan["emergency_target"]))
+    check("acil fon payi %50", abs(plan["emergency_share"] - 5000) < 1, str(plan["emergency_share"]))
+    check("yatirim dagilimi", len(plan["suggestions"]) == 3, f"{len(plan['suggestions'])} oneri")
+    check("gider uyarisi", assistant.build_plan(50000, 40000, "sakin", "emeklilik", 10)["warning"] is not None)
+
+    # uç durum: giderler maaşı aşarsa
+    p2 = assistant.build_plan(30000, 60000, "sakin", "kisa_vade", 1)
+    check("gider>maas uyarisi", p2["warning"] is not None and p2["needs"] <= p2["salary"], str(p2["warning"]))
+
+    from database import set_user_plan, get_user_plan, add_emergency_savings
+    set_user_plan(USER, plan["salary"], plan["expenses"], plan["risk"], plan["goal"],
+                  plan["salary_day"], plan["emergency_target"], assistant.plan_to_json(plan))
+    row = get_user_plan(USER)
+    check("plan kaydedildi", row is not None and row["risk"] == "dengeli")
+    add_emergency_savings(USER, 5000)
+    check("acil fon birikimi", get_user_plan(USER)["emergency_saved"] == 5000)
+    check("describe_plan", "Senin Planın" in assistant.describe_plan(plan, 5000))
+    check("tip_of_day", isinstance(assistant.tip_of_day(), str) and len(assistant.tip_of_day()) > 10)
+    check("today_action", "Bugün için önerim" in assistant.today_action(plan, 5000, 0, 10000))
+
+    print("== Grafik ==")
+    from services import charts
+    img = charts.build_chart("AAPL", "3mo")
+    check("build_chart PNG", img is not None and img[:8] == b"\x89PNG\r\n\x1a\n", f"{len(img) if img else 0} byte")
+    check("build_chart az veri -> None", charts.build_chart("AAPL", "1d") is None)
+
+    print("== Dogal dil ==")
+    from services import nlp
+    cases = {
+        "BTC ne durumda?": ("price", "BTC-USD"),
+        "THYAO alınır mı?": ("signal", "THYAO.IS"),
+        "bu ay ne kadar harcadım?": ("expense", None),
+        "portföyüm nasıl?": ("portfolio", None),
+        "ne almalıyım?": ("signals", None),
+        "bana bir şey öğret": ("tip", None),
+        "planımı göster": ("plan", None),
+    }
+    for text, (want_action, want_sym) in cases.items():
+        p = nlp.parse(text)
+        ok_action = p["action"] == want_action
+        ok_sym = (p.get("symbol") == want_sym) if want_sym else (p.get("symbol") in (None, want_sym))
+        check(f"nlp: {text}", ok_action and ok_sym, f"-> {p}")
+
+    print("== Ani hareket alarmi ==")
+    from database import add_watch as db_add_watch
+    from services import alerts as alert_mod
+    db_add_watch(USER, "AAPL")
+    big1 = alert_mod.check_big_moves(threshold_pct=0.0)
+    check("big move tetiklendi", len(big1) >= 1 and big1[0]["symbol"] == "AAPL", f"{len(big1)} bildirim")
+    big2 = alert_mod.check_big_moves(threshold_pct=0.0)
+    check("gun icinde tekrar yok", len(big2) == 0, f"{len(big2)} bildirim")
+
+    print()
+    if FAIL:
+        print(f"SONUC: {len(FAIL)} HATA -> {FAIL}")
+        raise SystemExit(1)
+    print("SONUC: Tum testler gecti (OK)")
+
+
+if __name__ == "__main__":
+    main()
