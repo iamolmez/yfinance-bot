@@ -42,3 +42,6 @@ ALERT_CHECK_SECONDS: int = _env_int("ALERT_CHECK_SECONDS", 180)
 
 # --- Ani hareket alarmi (yuzde) ---
 BIG_MOVE_PCT: float = float(os.getenv("BIG_MOVE_PCT", "5.0"))
+
+# --- Stop-loss esigi (yuzde) ---
+STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "8.0"))

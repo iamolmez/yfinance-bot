@@ -305,6 +305,38 @@ async def auto_pick_job(context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Otomatik secim gonderilemedi (%s): %s", user_id, e)
 
 
+async def stop_loss_job(context: ContextTypes.DEFAULT_TYPE):
+    """Pozisyonlari stop-loss esigiyle kontrol eder, gunluk bir kez uyarir."""
+    pct = config.STOP_LOSS_PCT
+    today = datetime.now(TZ_ISTANBUL).date().isoformat()
+    for user_id in config.ALLOWED_USER_IDS:
+        try:
+            pf = await to_thread(portfolio.get_portfolio, user_id)
+            for p in pf["positions"]:
+                if not p.avg_cost:
+                    continue
+                stop = p.avg_cost * (1 - pct / 100)
+                if p.current_price <= stop:
+                    key = (user_id, p.symbol)
+                    if _last_stop_notify.get(key) == today:
+                        continue
+                    _last_stop_notify[key] = today
+                    drop = (p.current_price / p.avg_cost - 1) * 100
+                    msg = (
+                        f"⚠️ <b>Stop-loss uyarısı: {p.symbol}</b>\n"
+                        f"💰 Maliyet: {p.avg_cost:,.2f} | Anlık: {p.current_price:,.2f} ({drop:+.1f}%)\n"
+                        f"🛑 Zarar kes seviyen: {stop:,.2f} (-%{pct:.0f})\n\n"
+                        f"Kuralların diyor ki: ya sat ({p.symbol} {p.qty:.4f} adet) ya da "
+                        f"seviyeyi yeniden değerlendir."
+                    )
+                    await context.bot.send_message(chat_id=user_id, text=msg)
+        except Exception as e:
+            logger.warning("Stop-loss kontrolu hatali (%s): %s", user_id, e)
+
+
+_last_stop_notify: dict = {}
+
+
 def fmt(value: float, currency: str) -> str:
     sym = {"TRY": "₺", "USD": "$"}.get(currency, currency)
     return f"{value:,.2f} {sym}"
@@ -411,10 +443,14 @@ def setup_jobs(app) -> None:
         time=dtime(hour=15, minute=0, tzinfo=TZ_ISTANBUL),
         name="auto_pick",
     )
+    # Stop-loss kontrolu (6 saatte bir)
+    q.run_repeating(
+        stop_loss_job, interval=6 * 3600, first=300
+    )
     logger.info(
         "Zamanlanmis gorevler kuruldu: alarm=%ss, sinyal=%sdk, ozet=18:30, "
         "asistan=09:00/20:00, maas=09:30, bist=10:05, yatirim=12:00, "
-        "otomatik secim=15:00, haftalik=Paz 19:00",
+        "otomatik secim=15:00, stop-loss=6s, haftalik=Paz 19:00",
         config.ALERT_CHECK_SECONDS,
         config.SCAN_MINUTES,
     )

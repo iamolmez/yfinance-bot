@@ -259,3 +259,18 @@ def market_hours_text(sym: str) -> str:
     if kind == "bist":
         return "Hafta içi 09:00–18:00 (TR)"
     return "Hafta içi ~16:00–23:30 (TR)"
+
+
+def get_news(sym: str, limit: int = 5) -> list[dict]:
+    """Sembol icin son haber basliklari (yfinance). Bos liste donulebilir."""
+    try:
+        items = yf.Ticker(sym).news
+    except Exception:
+        return []
+    out: list[dict] = []
+    for it in (items or [])[:limit]:
+        title = (it.get("title") or "").strip()
+        link = (it.get("link") or "").strip()
+        if title:
+            out.append({"title": title, "link": link})
+    return out

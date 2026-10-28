@@ -34,7 +34,21 @@ from database import (
     set_pending_expense,
     set_user_plan,
 )
-from services import assistant, budget, charts, indicators as ind, market_data as md, nlp, picker, portfolio, signals
+from services import (
+    assistant,
+    backtest,
+    budget,
+    charts,
+    fundamentals,
+    indicators as ind,
+    macro,
+    market_data as md,
+    nlp,
+    picker,
+    portfolio,
+    risk,
+    signals,
+)
 
 CUR_SYM = {"TRY": "₺", "USD": "$"}
 
@@ -228,6 +242,14 @@ async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     vr = a.get("vol_ratio")
     vol_line = f"{vr:.1f}x (ortalama)" if vr else "—"
+    # Temel analiz (yavas istek, 24s onbellekli) - best effort
+    fund_line = ""
+    try:
+        f = await to_thread(fundamentals.get_fundamentals, sym)
+        if f:
+            fund_line = "\n" + fundamentals.fundamentals_text(f)
+    except Exception:
+        pass
     lines = [
         f"🔬 <b>Detaylı Analiz: {sym}</b> — {name}",
         "",
@@ -240,8 +262,13 @@ async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌊 ATR(14): {fmt_money(a['atr'], cur)} (volatilite)",
         f"📦 Hacim: {vol_line}",
         f"🕐 Piyasa: {md.market_hours_text(sym)}",
+    ]
+    if fund_line:
+        lines += ["", fund_line]
+    lines += [
         "",
         f"🖼️ Büyük görsel için: <code>/grafik {sym}</code>",
+        f"📊 Geçmiş performans testi: <code>/backtest {sym}</code>",
     ]
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
@@ -369,6 +396,7 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     lines = ["💼 <b>Portföy Özeti</b>\n"]
+    stop_pct = config.STOP_LOSS_PCT
     for p in pf["positions"]:
         if p.unrealized_pnl >= 0:
             pnl = f"<b>+{p.unrealized_pnl:,.2f}</b> (+{p.unrealized_pct:.1f}%) 🟢"
@@ -377,10 +405,13 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         realized = ""
         if abs(p.realized_pnl) > 0.005:
             realized = f" | Gerçekleşen: {p.realized_pnl:+,.2f}"
+        stop_price = p.avg_cost * (1 - stop_pct / 100) if p.avg_cost else 0.0
+        stop_flag = " ⚠️ STOP!" if stop_price and p.current_price <= stop_price else ""
         lines.append(
             f"• <b>{p.symbol}</b> — {p.qty:,.4f} adet\n"
             f"  Maliyet: {fmt_money(p.avg_cost, p.currency)} | Anlık: {fmt_money(p.current_price, p.currency)}\n"
-            f"  Değer: <b>{fmt_money(p.market_value, p.currency)}</b> | K/Z: {pnl}{realized}"
+            f"  Değer: <b>{fmt_money(p.market_value, p.currency)}</b> | K/Z: {pnl}{realized}\n"
+            f"  🛑 Stop-loss: {fmt_money(stop_price, p.currency)} (-%{stop_pct:.0f}){stop_flag}"
         )
 
     lines.append("")
@@ -830,6 +861,21 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
     if action == "pick":
         await cmd_pick(update, None)
         return True
+    if action == "makro":
+        await cmd_macro(update, None)
+        return True
+    if action == "risk":
+        await cmd_risk(update, None)
+        return True
+    if action == "backtest":
+        await cmd_backtest(update, None, symbol)
+        return True
+    if action == "news":
+        await cmd_news(update, None, symbol)
+        return True
+    if action == "temel":
+        await cmd_fundamental(update, None, symbol)
+        return True
     if action == "portfolio":
         await cmd_portfolio(update, None)
         return True
@@ -947,6 +993,95 @@ async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_fundamental(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          sym_arg: str | None = None):
+    """/temel SYMBOL — sirketin finansal sagligi (degerleme, borc, buyume)."""
+    arg = sym_arg or _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/temel THYAO</code>")
+        return
+    resolved = await to_thread(md.resolve_symbol, arg)
+    if not resolved:
+        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
+        return
+    sym = resolved[0]
+    await update.message.reply_text(f"🔍 {sym} finansalları çekiliyor...")
+    f = await to_thread(fundamentals.get_fundamentals, sym)
+    if not f:
+        await update.message.reply_text("❌ Temel veri alınamadı (küçük/özel şirketlerde olabilir).")
+        return
+    text = fundamentals.fundamentals_text(f)
+    await update.message.reply_text(
+        f"📊 <b>{sym}</b> — {f['name']}\n\n{text}\n" + DISCLAIMER
+    )
+
+
+@restricted
+async def cmd_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       sym_arg: str | None = None):
+    """/backtest SYMBOL [PERIYOT] — strateji gecmiste kazandirir miydi?"""
+    arg = sym_arg or _arg(context, 0)
+    period = _arg(context, 1) or "2y"
+    if not arg:
+        await update.message.reply_text(
+            "Kullanım: <code>/backtest THYAO</code> (periyot: 1y, 2y, 5y)\n"
+            "Bu test, sinyal kuralının son dönemde al-sat yapmasa da seni kazandırıp kazandırmayacağını ölçer."
+        )
+        return
+    if period not in ("1y", "2y", "5y", "10y"):
+        await update.message.reply_text("❌ Periyot: 1y, 2y, 5y, 10y kullan.")
+        return
+    resolved = await to_thread(md.resolve_symbol, arg)
+    if not resolved:
+        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
+        return
+    sym = resolved[0]
+    await update.message.reply_text(f"🧪 {sym} geçmiş test ediliyor ({period})...")
+    result = await to_thread(backtest.backtest, sym, period)
+    await update.message.reply_text(backtest.backtest_text(result))
+
+
+@restricted
+async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/risk — portfoy risk analizi."""
+    user = update.effective_user
+    pf = await to_thread(portfolio.get_portfolio, user.id)
+    cash = await to_thread(get_cash, user.id)
+    r = await to_thread(risk.analyze, pf["positions"], cash)
+    await update.message.reply_text(risk.risk_text(r))
+
+
+@restricted
+async def cmd_macro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/makro — doviz, emtia ve endeks paneli."""
+    msg = await to_thread(macro.dashboard)
+    await update.message.reply_text(msg)
+
+
+@restricted
+async def cmd_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                   sym_arg: str | None = None):
+    """/haber SYMBOL — son haber basliklari."""
+    arg = sym_arg or _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/haber THYAO</code>")
+        return
+    resolved = await to_thread(md.resolve_symbol, arg)
+    if not resolved:
+        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
+        return
+    sym = resolved[0]
+    items = await to_thread(md.get_news, sym)
+    if not items:
+        await update.message.reply_text(f"📭 {sym} için haber bulunamadı.")
+        return
+    lines = [f"📰 <b>{sym} — Son Haberler</b>"]
+    for it in items:
+        lines.append(f"• {it['title']}\n  {it['link']}")
+    await update.message.reply_text("\n".join(lines[:8]))
+
+
+@restricted
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serbest metin: harcama kaydi, dogal dil komutu veya yardim menusu."""
     user = update.effective_user
@@ -1032,6 +1167,11 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("maasgunu", cmd_salary_day))
     app.add_handler(CommandHandler("dengele", cmd_rebalance))
     app.add_handler(CommandHandler("oner", cmd_pick))
+    app.add_handler(CommandHandler("temel", cmd_fundamental))
+    app.add_handler(CommandHandler("backtest", cmd_backtest))
+    app.add_handler(CommandHandler("risk", cmd_risk))
+    app.add_handler(CommandHandler("makro", cmd_macro))
+    app.add_handler(CommandHandler("haber", cmd_news))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))

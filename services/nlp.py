@@ -26,6 +26,11 @@ _STRONG = {
     "plan": ["planım", "planımı", "plan", "maaş", "maas", "dagilim", "dağılım"],
     "tip": ["ogret", "öğret", "bilgi ver", "ipucu", "eğitim", "egitim", "bilgilendir", "öğren", "ders ver"],
     "status": ["durumum", "genel durum", "özet çıkar", "ozet cikar", "rapor çıkar"],
+    "makro": ["makro", "dolar ne durumda", "piyasa nasıl", "piyasa genel", "kur ne", "kurlar", "endeksler", "genel piyasa"],
+    "risk": ["risk analizi", "riskim", "riskli mi", "portföy riski", "çeşitlendirme", "cesitlendirme"],
+    "backtest": ["backtest", "geriye dönük", "geçmiş test", "gecti mi", "kazandırır mı"],
+    "news": ["haber", "son haber", "gündem", "ne var haberlerde"],
+    "temel": ["temel analiz", "temel veri", "finansal", "şirket değeri", "sirket degeri", "f/k", "fk ne"],
     "signals": ["sinyal", "alınır mı", "alinir mi", "alınmalı", "firsat", "fırsat", "ne almalıyım", "öneri", "oneri", "tavsiye", "hisse öner"],
 }
 

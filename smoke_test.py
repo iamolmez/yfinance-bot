@@ -210,6 +210,32 @@ def main():
     check("picker profil bolunmesi", pres["safe_pct"] == 60 and pres["risky_pct"] == 40, f"{pres['safe_pct']}/{pres['risky_pct']}")
     check("picker mesaj", "Otomatik Seçimler" in picker.pick_message(pres))
 
+    print("== Temel analiz / Backtest / Risk / Makro ==")
+    from services import backtest as bt_mod, fundamentals as fund, macro as macro_mod, risk as risk_mod
+    # Temel skor (canli ag olmadan, ornek veriyle)
+    ff = {"pe": 8, "pb": 1.2, "roe": 0.18, "profit_margin": 0.15,
+          "revenue_growth": 0.12, "debt_to_equity": 40, "dividend_yield": 0.03,
+          "market_cap": 10, "currency": "TRY", "sector": "Sanayi"}
+    fscore, flabel = fund.score_fundamentals(ff)
+    check("temel skor", fscore >= 50, f"skor={fscore} {flabel}")
+    check("temel metin", "F/K" in fund.fundamentals_text(ff))
+
+    # Backtest (gercek veri, 1 yil)
+    bt = bt_mod.backtest("AAPL", "1y")
+    check("backtest AAPL", bt is not None and "strategy_return" in bt,
+          f"getiri=%{bt['strategy_return']:.1f}" if bt else "YOK")
+    check("backtest metin", "Backtest" in bt_mod.backtest_text(bt))
+
+    # Risk analizi
+    rp = risk_mod.analyze([FakePos("THYAO.IS", 40000), FakePos("BTC-USD", 10000)], cash=5000)
+    check("risk analizi", rp["ok"] and rp["n_positions"] == 2)
+    check("risk konsantrasyonu", rp["top_weight"] > 70, f"%{rp['top_weight']:.0f}")
+    check("risk metin", "Risk Analizi" in risk_mod.risk_text(rp))
+
+    # Makro panel
+    mtext = macro_mod.dashboard()
+    check("makro panel", "Makro" in mtext and "USD/TRY" in mtext)
+
     print()
     if FAIL:
         print(f"SONUC: {len(FAIL)} HATA -> {FAIL}")
