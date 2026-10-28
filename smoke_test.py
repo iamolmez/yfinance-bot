@@ -156,9 +156,9 @@ def main():
     check("pg INSERT budgets RETURNING", s4.endswith("RETURNING user_id"), s4)
     # schema parcalama + AUTOINCREMENT -> SERIAL
     stmts = [x.strip() for x in dbmod._SCHEMA.split(";") if x.strip()]
-    check("schema stmt sayisi (9 tablo + 4 indeks)", len(stmts) == 13, f"{len(stmts)} stmt")
+    check("schema stmt sayisi (12 tablo + 4 indeks)", len(stmts) == 16, f"{len(stmts)} stmt")
     tables = [x for x in stmts if x.startswith("CREATE TABLE")]
-    check("9 tablo", len(tables) == 9, f"{len(tables)} tablo")
+    check("12 tablo", len(tables) == 12, f"{len(tables)} tablo")
     watch_stmt = next(x for x in stmts if "watchlist" in x and "CREATE TABLE" in x)
     pg_watch = watch_stmt.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
     check("pg AUTOINCREMENT -> SERIAL", "SERIAL PRIMARY KEY" in pg_watch and "AUTOINCREMENT" not in pg_watch)
@@ -235,6 +235,49 @@ def main():
     # Makro panel
     mtext = macro_mod.dashboard()
     check("makro panel", "Makro" in mtext and "USD/TRY" in mtext)
+
+    print("== Notlar ==")
+    from database import add_note, get_notes
+    add_note(USER, "THYAO.IS", "Test notu")
+    notes = get_notes(USER, "THYAO.IS")
+    check("not ekle", len(notes) == 1 and notes[0]["note"] == "Test notu")
+
+    print("== Gelismis alarmlar ==")
+    from services import advanced_alerts as aa_mod
+    help_text = aa_mod.format_alert_help()
+    check("alarm2 yardim", "RSI" in help_text and "MACD" in help_text)
+    # Parametre dogrulama
+    ok, _ = aa_mod.validate_alert_config("rsi", {"threshold": 30, "direction": "below"})
+    check("rsi alarm dogrulama", ok)
+    ok, _ = aa_mod.validate_alert_config("macd", {"direction": "cross_up"})
+    check("macd alarm dogrulama", ok)
+    ok, _ = aa_mod.validate_alert_config("bb", {"band": "upper", "direction": "above"})
+    check("bb alarm dogrulama", ok)
+    ok, _ = aa_mod.validate_alert_config("volume", {"multiplier": 2})
+    check("hacim alarm dogrulama", ok)
+    ok, _ = aa_mod.validate_alert_config("price", {"target": 100, "direction": "above"})
+    check("fiyat alarm dogrulama", ok)
+
+    print("== Performans ==")
+    from services import performance as perf_mod
+    attr_text = perf_mod.attribution_text(USER)
+    check("performans atfi", "Performans Atfı" in attr_text)
+
+    print("== Karsilastirma ==")
+    from services import fundamentals as fund
+    ff1 = {"pe": 10, "pb": 1.5, "roe": 0.20, "profit_margin": 0.15}
+    ff2 = {"pe": 25, "pb": 3.0, "roe": 0.08, "profit_margin": 0.05}
+    check("temel karsilastirma veri", fund.score_fundamentals(ff1)[0] > fund.score_fundamentals(ff2)[0])
+
+    print("== Takvim ==")
+    from services import calendar as cal_mod
+    events = cal_mod.get_upcoming_events(None, 7)
+    check("takvim bos", isinstance(events, list))
+
+    print("== Inline query parse ==")
+    from services import inline as inline_mod
+    syms = inline_mod.parse_inline_query("THYAO AAPL BTC")
+    check("inline parse", "THYAO.IS" in syms and "AAPL" in syms and "BTC-USD" in syms)
 
     print()
     if FAIL:

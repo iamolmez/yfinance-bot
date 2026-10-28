@@ -117,6 +117,33 @@ CREATE TABLE IF NOT EXISTS pending_expense (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    symbol     TEXT NOT NULL,
+    note       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_config (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    symbol     TEXT NOT NULL,
+    type       TEXT NOT NULL,
+    params     TEXT,
+    active     INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS corp_calendar (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol     TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_date TEXT NOT NULL,
+    details    TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cash (
     user_id    INTEGER PRIMARY KEY,
     balance    REAL NOT NULL DEFAULT 0,
@@ -455,6 +482,88 @@ def clear_pending_expense(user_id: int) -> None:
 def has_pending_expense(user_id: int) -> bool:
     row = query_one("SELECT 1 FROM pending_expense WHERE user_id = ?", (user_id,))
     return row is not None
+
+
+# ---------------- Notlar ----------------
+
+def add_note(user_id: int, symbol: str, note: str) -> int:
+    return execute(
+        "INSERT INTO notes (user_id, symbol, note, created_at) VALUES (?, ?, ?, ?)",
+        (user_id, symbol, note, now_iso()),
+    )
+
+
+def get_notes(user_id: int, symbol: str | None = None) -> list:
+    if symbol:
+        return query(
+            "SELECT * FROM notes WHERE user_id = ? AND symbol = ? ORDER BY created_at DESC",
+            (user_id, symbol),
+        )
+    return query(
+        "SELECT * FROM notes WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
+    )
+
+
+def delete_note(note_id: int, user_id: int) -> bool:
+    cur = execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (note_id, user_id))
+    return cur > 0
+
+
+# ---------------- Gelişmiş alarmlar ----------------
+
+def add_alert_config(user_id: int, symbol: str, type_: str, params: str = "") -> int:
+    return execute(
+        "INSERT INTO alert_config (user_id, symbol, type, params, active, created_at) "
+        "VALUES (?, ?, ?, ?, 1, ?)",
+        (user_id, symbol, type_, params, now_iso()),
+    )
+
+
+def get_alert_configs(user_id: int, symbol: str | None = None, active_only: bool = True) -> list:
+    sql = "SELECT * FROM alert_config WHERE user_id = ?"
+    params = [user_id]
+    if symbol:
+        sql += " AND symbol = ?"
+        params.append(symbol)
+    if active_only:
+        sql += " AND active = 1"
+    sql += " ORDER BY created_at DESC"
+    return query(sql, tuple(params))
+
+
+def deactivate_alert_config(config_id: int, user_id: int) -> bool:
+    cur = execute(
+        "UPDATE alert_config SET active = 0 WHERE id = ? AND user_id = ?",
+        (config_id, user_id),
+    )
+    return cur > 0
+
+
+# ---------------- Kurumsal takvim ----------------
+
+def add_corp_event(symbol: str, event_type: str, event_date: str, details: str = "") -> int:
+    return execute(
+        "INSERT INTO corp_calendar (symbol, event_type, event_date, details, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (symbol, event_type, event_date, details, now_iso()),
+    )
+
+
+def get_corp_calendar(days_ahead: int = 30) -> list:
+    from datetime import date, timedelta
+    end = date.today() + timedelta(days=days_ahead)
+    return query(
+        "SELECT * FROM corp_calendar WHERE date(event_date) BETWEEN date('now') AND date(?) "
+        "ORDER BY event_date",
+        (end.isoformat(),),
+    )
+
+
+def get_corp_calendar_for_symbol(symbol: str) -> list:
+    return query(
+        "SELECT * FROM corp_calendar WHERE symbol = ? ORDER BY event_date",
+        (symbol,),
+    )
 
 
 # ---------------- Nakit hesabi (eldeki para) ----------------

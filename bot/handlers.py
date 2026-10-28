@@ -17,13 +17,22 @@ from telegram.ext import (
 import config
 from database import (
     add_alert,
+    add_alert_config,
     add_cash,
+    add_corp_event,
     add_emergency_savings,
+    add_note,
     add_watch,
     clear_pending_expense,
+    deactivate_alert_config,
     delete_alert,
+    delete_note,
+    get_alert_configs,
     get_alerts,
     get_cash,
+    get_corp_calendar,
+    get_corp_calendar_for_symbol,
+    get_notes,
     get_transactions,
     get_user_plan,
     get_watchlist,
@@ -35,15 +44,19 @@ from database import (
     set_user_plan,
 )
 from services import (
+    advanced_alerts,
     assistant,
     backtest,
     budget,
+    calendar as cal_svc,
     charts,
     fundamentals,
     indicators as ind,
+    inline,
     macro,
     market_data as md,
     nlp,
+    performance,
     picker,
     portfolio,
     risk,
@@ -1105,6 +1118,190 @@ async def cmd_news(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 @restricted
+async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/not SYMBOL NOT — pozisyona not ekle."""
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Kullanım: <code>/not THYAO notunuz</code>")
+        return
+    sym_arg = args[0]
+    note = " ".join(args[1:])
+    resolved = await to_thread(md.resolve_symbol, sym_arg)
+    if not resolved:
+        await update.message.reply_text(f"❌ <b>{sym_arg}</b> bulunamadı.")
+        return
+    sym = resolved[0]
+    add_note(update.effective_user.id, sym, note)
+    await update.message.reply_text(f"📝 <b>{sym}</b> için not eklendi: {note}")
+
+
+@restricted
+async def cmd_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/notlar [SYMBOL] — notları gör."""
+    user = update.effective_user
+    args = context.args
+    symbol = None
+    if args:
+        resolved = await to_thread(md.resolve_symbol, args[0])
+        if resolved:
+            symbol = resolved[0]
+    notes = get_notes(user.id, symbol)
+    if not notes:
+        await update.message.reply_text("📭 Not bulunamadı.")
+        return
+    lines = ["📝 <b>Notlarınız</b>"]
+    for n in notes[:10]:
+        lines.append(f"• <b>{n['symbol']}</b> ({n['created_at'][:10]}): {n['note']}")
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/karsilastir SYMBOL1 SYMBOL2 — iki hisseyi yan yana karsilastir."""
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Kullanım: <code>/karsilastir THYAO GARAN</code>")
+        return
+    syms = []
+    for a in args[:2]:
+        resolved = await to_thread(md.resolve_symbol, a)
+        if resolved:
+            syms.append(resolved[0])
+    if len(syms) < 2:
+        await update.message.reply_text("❌ Semboller bulunamadı.")
+        return
+
+    quotes = await to_thread(md.get_quotes_batch, syms)
+    lines = ["⚖️ <b>Karşılaştırma</b>\n"]
+    for sym in syms:
+        q = quotes.get(sym)
+        if not q:
+            lines.append(f"• <b>{sym}</b>: veri yok")
+            continue
+        sign = "+" if q["change_pct"] >= 0 else ""
+        emoji = "🟢" if q["change_pct"] >= 0 else "🔴"
+        lines.append(
+            f"• <b>{sym}</b> ({emoji} {sign}{q['change_pct']:.2f}%): "
+            f"{q['price']:,.2f} {q['currency']} | Hacim: {q['volume']:,.0f}"
+        )
+    # Temel veri karsilastirmasi
+    fund_data = {}
+    for sym in syms:
+        f = await to_thread(fundamentals.get_fundamentals, sym)
+        if f:
+            fund_data[sym] = f
+    if fund_data:
+        lines.append("\n📊 <b>Temel Veri:</b>")
+        for sym in syms:
+            f = fund_data.get(sym)
+            if f:
+                lines.append(
+                    f"• <b>{sym}</b>: F/K={f.get('pe')}, P/B={f.get('pb')}, "
+                    f"ROE={f.get('roe')*100:.0f}%, Marj=%{f.get('profit_margin',0)*100:.0f}"
+                )
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/takvim [GUN] — kurumsal takvim (temettü, çeyrek, vb.)."""
+    arg = _arg(context, 0)
+    days = 7
+    if arg and arg.isdigit():
+        days = min(int(arg), 60)
+    events = cal_svc.get_upcoming_events(None, days)
+    if not events:
+        # Takip listesini senkronize etmeyi dene
+        for user_id in config.ALLOWED_USER_IDS:
+            # Arka planda senkronize et
+            pass
+        events = cal_svc.get_upcoming_events(None, days)
+    msg = cal_svc.format_calendar(events, days)
+    await update.message.reply_text(msg)
+
+
+@restricted
+async def cmd_advanced_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarm2 SYMBOL TÜR PARAMETRELER — gelişmiş alarm."""
+    args = context.args
+    if len(args) < 3:
+        await update.message.reply_text(advanced_alerts.format_alert_help())
+        return
+    sym_arg = args[0]
+    type_ = args[1].lower()
+    params = {}
+    try:
+        if type_ == "rsi":
+            params = {"threshold": float(args[2]), "direction": args[3].lower()}
+        elif type_ == "macd":
+            params = {"direction": args[2].lower()}
+        elif type_ == "bb":
+            params = {"band": args[2].lower(), "direction": args[3].lower()}
+        elif type_ == "volume":
+            params = {"multiplier": float(args[2])}
+        elif type_ == "price":
+            params = {"target": float(args[2]), "direction": args[3].lower()}
+        else:
+            await update.message.reply_text(advanced_alerts.format_alert_help())
+            return
+    except (IndexError, ValueError):
+        await update.message.reply_text(advanced_alerts.format_alert_help())
+        return
+
+    resolved = await to_thread(md.resolve_symbol, args[0])
+    if not resolved:
+        await update.message.reply_text(f"❌ Sembol bulunamadı.")
+        return
+    sym = resolved[0]
+    config_id = advanced_alerts.create_alert(update.effective_user.id, sym, args[1].lower(), params)
+    if config_id:
+        await update.message.reply_text(
+            f"🔔 Gelişmiş alarm kuruldu (ID: {config_id}): {sym} {args[1]} {params}"
+        )
+    else:
+        await update.message.reply_text(advanced_alerts.format_alert_help())
+
+
+@restricted
+async def cmd_advanced_alerts_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarm2lar — aktif gelişmiş alarmlar."""
+    user = update.effective_user
+    configs = get_alert_configs(user.id)
+    if not configs:
+        await update.message.reply_text("🔔 Aktif gelişmiş alarm yok.")
+        return
+    lines = ["🔔 <b>Aktif Gelişmiş Alarmlar</b>\n"]
+    for c in configs:
+        params = json.loads(c["params"]) if c["params"] else {}
+        lines.append(
+            f"• ID {c['id']}: {c['symbol']} {c['type']} {params} "
+            f"({'✅' if c['active'] else '❌'})"
+        )
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_advanced_alert_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarm2sil ID — gelişmiş alarm sil."""
+    arg = _arg(context, 0)
+    if not arg or not arg.isdigit():
+        await update.message.reply_text("Kullanım: <code>/alarm2sil ID</code>")
+        return
+    if deactivate_alert_config(int(arg), update.effective_user.id):
+        await update.message.reply_text(f"🗑️ Alarm <b>#{arg}</b> silindi.")
+    else:
+        await update.message.reply_text(f"❌ Alarm <b>#{arg}</b> bulunamadı.")
+
+
+@restricted
+async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/performans — performans atfi ve atfi."""
+    user = update.effective_user
+    msg = performance.attribution_text(user.id)
+    await update.message.reply_text(msg)
+
+
+@restricted
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Serbest metin: harcama kaydi, dogal dil komutu veya yardim menusu."""
     user = update.effective_user
@@ -1196,6 +1393,15 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("risk", cmd_risk))
     app.add_handler(CommandHandler("makro", cmd_macro))
     app.add_handler(CommandHandler("haber", cmd_news))
+    # Yeni komutlar
+    app.add_handler(CommandHandler("not", cmd_note))
+    app.add_handler(CommandHandler("notlar", cmd_notes))
+    app.add_handler(CommandHandler("karsilastir", cmd_compare))
+    app.add_handler(CommandHandler("takvim", cmd_calendar))
+    app.add_handler(CommandHandler("alarm2", cmd_advanced_alert))
+    app.add_handler(CommandHandler("alarm2lar", cmd_advanced_alerts_list))
+    app.add_handler(CommandHandler("alarm2sil", cmd_advanced_alert_remove))
+    app.add_handler(CommandHandler("performans", cmd_performance))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))

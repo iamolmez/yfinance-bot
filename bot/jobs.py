@@ -1,11 +1,15 @@
 """Arka plan gorevleri (JobQueue).
 
-1. check_alerts_job    : fiyat alarmlarini kontrol eder (her 3 dk)
-2. signal_digest_job   : takip listesini tarar, guclu sinyalleri bildirir (saatlik)
-3. daily_summary_job   : aksamlari portfoy + sinyal ozeti gonderir (18:30)
-4. morning_checkin_job : sabahlari asistan mesaji (09:00) - hatirlatma + tip + ozet
-5. evening_checkin_job : aksamlari harcama kontrolu (20:00) - butonlu soru
-6. salary_day_job      : maas gununde dagilim hatirlatmasi (09:30)
+1. check_alerts_job       : fiyat alarmlarini kontrol eder (her 3 dk)
+2. signal_digest_job      : takip listesini tarar, guclu sinyalleri bildirir (saatlik)
+3. daily_summary_job      : aksamlari portfoy + sinyal ozeti gonderir (18:30)
+4. morning_checkin_job    : sabahlari asistan mesaji (09:00) - hatirlatma + tip + ozet
+5. evening_checkin_job    : aksamlari harcama kontrolu (20:00) - butonlu soru
+6. salary_day_job         : maas gununde dagilim hatirlatmasi (09:30)
+7. pre_market_job         : BIST acilis oncesi ozet (08:30) - ABD kapanisi, futures, haberler
+8. advanced_alerts_job    : gelismis alarmlar (her 15 dk)
+9. calendar_sync_job      : kurumsal takvim senkronizasyonu (gece 02:00)
+10. weekly_performance_job: haftalik performans (Pazar 19:00)
 """
 import asyncio
 import logging
@@ -22,8 +26,17 @@ from database import (
     get_watchlist,
     query,
 )
-from services import alerts as alert_svc
-from services import assistant, budget, market_data as md, picker, portfolio, signals
+from services import (
+    advanced_alerts,
+    alerts as alert_svc,
+    assistant,
+    budget,
+    calendar as cal_svc,
+    market_data as md,
+    picker,
+    portfolio,
+    signals,
+)
 from services.market_data import TZ_ISTANBUL
 
 logger = logging.getLogger(__name__)
@@ -387,6 +400,64 @@ async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Gun sonu ozeti gonderilemedi (%s): %s", user_id, e)
 
 
+async def advanced_alerts_job(context: ContextTypes.DEFAULT_TYPE):
+    """Gelismis alarmlari kontrol eder (her 15 dk)."""
+    triggered = await to_thread(advanced_alerts.check_advanced_alerts)
+    for t in triggered:
+        try:
+            await context.bot.send_message(chat_id=t["user_id"], text=t["message"])
+        except Exception as e:
+            logger.warning("Gelismis alarm gonderilemedi (%s): %s", t["user_id"], e)
+
+
+async def calendar_sync_job(context: ContextTypes.DEFAULT_TYPE):
+    """Kurumsal takvim senkronizasyonu (gece 02:00)."""
+    try:
+        count = cal_svc.sync_all_watched(60)
+        logger.info("Takvim senkronizasyonu: %d olay eklendi", count)
+    except Exception as e:
+        logger.warning("Takvim senkronizasyonu hatasi: %s", e)
+
+
+async def pre_market_job(context: ContextTypes.DEFAULT_TYPE):
+    """BIST acilis oncesi ozet (08:30)."""
+    from services import macro
+    for user_id in config.ALLOWED_USER_IDS:
+        try:
+            lines = [
+                "🌅 <b>Pre-Market Özeti</b>",
+                f"🕐 {datetime.now(TZ_ISTANBUL):%H:%M} — BIST açılışına 30 dk",
+                "",
+                "<b>🌍 Gece ABD Piyasaları</b>",
+            ]
+            macro_text = macro.dashboard()
+            lines.append(macro_text.replace("🌍 <b>Makro Piyasa Paneli</b>\n", ""))
+            lines.append("")
+            lines.append("<b>📰 Öne Çıkan Haberler</b>")
+            # Takip listesi icin haberler
+            watch = get_watchlist(user_id)
+            for w in watch[:3]:
+                news = md.get_news(w["symbol"])
+                if news:
+                    lines.append(f"📰 <b>{w['symbol']}</b>: {news[0]['title'][:80]}...")
+                    break
+            lines.append("")
+            lines.append("⚠️ <i>Bilgilendirme amaçlıdır, yatırım tavsiyesi değildir.</i>")
+            await context.bot.send_message(chat_id=user_id, text="\n".join(lines))
+        except Exception as e:
+            logger.warning("Pre-market ozeti gonderilemedi (%s): %s", user_id, e)
+
+
+async def weekly_performance_job(context: ContextTypes.DEFAULT_TYPE):
+    """Haftalik performans ozeti (Pazar 19:00)."""
+    for user_id in config.ALLOWED_USER_IDS:
+        try:
+            msg = performance.weekly_performance(user_id)
+            await context.bot.send_message(chat_id=user_id, text=msg)
+        except Exception as e:
+            logger.warning("Haftalik performans gonderilemedi (%s): %s", user_id, e)
+
+
 def setup_jobs(app) -> None:
     q = app.job_queue
     if q is None:
@@ -447,10 +518,35 @@ def setup_jobs(app) -> None:
     q.run_repeating(
         stop_loss_job, interval=6 * 3600, first=300
     )
+    # Gelismis alarmlar (her 15 dk)
+    q.run_repeating(
+        advanced_alerts_job, interval=15 * 60, first=60
+    )
+    # Pre-market ozeti (BIST acilis oncesi 08:30)
+    q.run_daily(
+        pre_market_job,
+        time=dtime(hour=8, minute=30, tzinfo=TZ_ISTANBUL),
+        days=(0, 1, 2, 3, 4),
+        name="pre_market",
+    )
+    # Kurumsal takvim senkronizasyonu (gece 02:00)
+    q.run_daily(
+        calendar_sync_job,
+        time=dtime(hour=2, minute=0, tzinfo=TZ_ISTANBUL),
+        name="calendar_sync",
+    )
+    # Haftalik performans (Pazar 19:00)
+    q.run_daily(
+        weekly_performance_job,
+        time=dtime(hour=19, minute=0, tzinfo=TZ_ISTANBUL),
+        days=(6,),
+        name="weekly_performance",
+    )
     logger.info(
         "Zamanlanmis gorevler kuruldu: alarm=%ss, sinyal=%sdk, ozet=18:30, "
         "asistan=09:00/20:00, maas=09:30, bist=10:05, yatirim=12:00, "
-        "otomatik secim=15:00, stop-loss=6s, haftalik=Paz 19:00",
+        "otomatik secim=15:00, stop-loss=6s, pre-market=08:30, "
+        "gelismis alarmlar=15dk, takvim=02:00, haftalik=Paz 19:00",
         config.ALERT_CHECK_SECONDS,
         config.SCAN_MINUTES,
     )
