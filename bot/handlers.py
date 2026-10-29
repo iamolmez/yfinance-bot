@@ -343,28 +343,33 @@ async def cmd_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     arg = _arg(context, 0)
     period = _arg(context, 1) or "3mo"
+    theme = _arg(context, 2) or None  # light/dark
     if not arg:
         await update.message.reply_text(
-            "Kullanım: <code>/grafik SYMBOL [PERIYOT]</code>\n"
+            "Kullanım: <code>/grafik SYMBOL [PERIYOT] [TEMA]</code>\n"
             "Periyot: 1mo, 3mo, 6mo, 1y (varsayılan: 3mo)\n"
-            "Örn: <code>/grafik THYAO 6mo</code>"
+            "Tema: light, dark (varsayılan: config.CHART_THEME)\n"
+            "Örn: <code>/grafik THYAO 6mo dark</code>"
         )
         return
     if period not in ("1mo", "3mo", "6mo", "1y"):
         await update.message.reply_text("❌ Geçersiz periyot. 1mo, 3mo, 6mo, 1y kullan.")
+        return
+    if theme and theme not in ("light", "dark"):
+        await update.message.reply_text("❌ Geçersiz tema. light veya dark kullan.")
         return
     resolved = await to_thread(md.resolve_symbol, arg)
     if not resolved:
         await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
         return
     sym = resolved[0]
-    img = await to_thread(charts.build_chart, sym, period)
+    img = await to_thread(charts.build_chart, sym, period, theme)
     if not img:
         await update.message.reply_text("❌ Grafik için yeterli veri yok (en az 25 gün).")
         return
     await update.message.reply_photo(
         photo=InputFile(img, filename=f"{sym}.png"),
-        caption=f"🖼️ <b>{sym}</b> — son {period}",
+        caption=f"🖼️ <b>{sym}</b> — son {period} ({theme or 'varsayılan'})",
     )
 
 

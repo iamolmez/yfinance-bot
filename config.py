@@ -53,3 +53,6 @@ BIG_MOVE_PCT: float = float(os.getenv("BIG_MOVE_PCT", "5.0"))
 
 # --- Stop-loss esigi (yuzde) ---
 STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "8.0"))
+
+# --- Grafik teması ---
+CHART_THEME: str = os.getenv("CHART_THEME", "dark").lower()  # "light" veya "dark"
