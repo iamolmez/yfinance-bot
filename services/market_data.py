@@ -141,7 +141,12 @@ def _quote_from_df(df: pd.DataFrame) -> dict | None:
     change_pct = (change / prev * 100) if prev else 0.0
     high = float(df["High"].max()) if "High" in df else price
     low = float(df["Low"].min()) if "Low" in df else price
-    volume = int(df["Volume"].iloc[-1]) if "Volume" in df else 0
+    # Volume NaN olabilir, guvenli cevirim
+    volume = 0
+    if "Volume" in df:
+        vol_val = df["Volume"].iloc[-1]
+        if pd.notna(vol_val):
+            volume = int(vol_val)
     return {
         "symbol": None,  # cagiran doldurur
         "price": price,

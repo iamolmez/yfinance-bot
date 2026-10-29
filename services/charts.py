@@ -9,6 +9,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # GUI gerektirmez, dosyaya cizer
 import matplotlib.pyplot as plt  # noqa: E402
+import pandas as pd  # noqa: E402
 
 from services import indicators as ind, market_data as md  # noqa: E402
 
