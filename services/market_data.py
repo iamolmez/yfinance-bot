@@ -1,7 +1,7 @@
-"""Piyasa verisi servisi.
+"""Piyasa verisi servisi — Fallback zinciri destekli.
 
-Tek veri kaynagi: yfinance (Yahoo Finance). BIST, ABD hisseleri, kripto ve
-doviz kurlari ayni API uzerinden cekilir - API anahtari gerekmez.
+Veri sağlayıcıları: yfinance (varsayılan), Alpha Vantage, Twelve Data, Polygon.
+Sıralama DATA_PROVIDERS env değişkeniyle ayarlanır (örn: "yfinance,alphavantage").
 
 Sembol kurallari:
 - BIST   : THYAO.IS, GARAN.IS, XU100.IS ...
@@ -12,230 +12,66 @@ Sembol kurallari:
 import threading
 import time
 from datetime import datetime, time as dtime
-from zoneinfo import ZoneInfo
 
 import pandas as pd
-import yfinance as yf
 
-from config import CACHE_TTL, HISTORY_PERIOD, QUOTE_PERIOD
+from config import CACHE_TTL, HISTORY_PERIOD, QUOTE_PERIOD, DATA_PROVIDERS
+from services.data_providers import get_provider_chain, Quote as ProviderQuote
+from services.common import TZ_ISTANBUL, ALIASES, kind_of, currency_of
 
-TZ_ISTANBUL = ZoneInfo("Europe/Istanbul")
-
-# Kisaltma -> Yahoo sembolu
-ALIASES = {
-    "BTC": "BTC-USD", "BITCOIN": "BTC-USD",
-    "ETH": "ETH-USD", "ETHEREUM": "ETH-USD",
-    "SOL": "SOL-USD", "XRP": "XRP-USD", "DOGE": "DOGE-USD",
-    "XU100": "XU100.IS", "BIST100": "XU100.IS",
-    "USD": "TRY=X", "USDTRY": "TRY=X", "DOLAR": "TRY=X",
-    "EUR": "EURTRY=X", "EURTRY": "EURTRY=X", "EURO": "EURTRY=X",
-    "EURUSD": "EURUSD=X",
-    "GOLD": "GC=F", "ALTIN": "GC=F", "ONSALTIN": "GC=F",
-}
-
-_cache: dict = {}
-_lock = threading.Lock()
 _name_cache: dict = {}
+_name_lock = threading.Lock()
 
 
-def _candidates(raw: str) -> list[str]:
-    """Kullanici girdisinden denenecek sembol adaylarini uretir."""
-    s = raw.strip().upper()
-    out: list[str] = []
-    if s in ALIASES:
-        out.append(ALIASES[s])
-    out.append(s)
-    # BIST tahmini: noktasiz, kisa, harf-rakam karisimi
-    if "." not in s and "-" not in s and "=" not in s and s.isalnum() and len(s) <= 7:
-        out.append(s + ".IS")
-    # Kripto tahmini
-    if "." not in s and "=" not in s and "X" not in s[-3:]:
-        out.append(s + "-USD")
-    # Tekrarlari temizle
-    return list(dict.fromkeys(out))
-
-
-def kind_of(sym: str) -> str:
-    if sym.endswith(".IS"):
-        return "bist"
-    if sym.endswith("=X"):
-        return "fx"
-    if sym == "GC=F":
-        return "commodity"
-    if "-" in sym:
-        return "crypto"
-    return "us"
-
-
-def currency_of(sym: str) -> str:
-    if sym.endswith(".IS"):
-        return "TRY"
-    if sym.endswith("=X"):
-        return {"TRY=X": "TRY", "EURTRY=X": "TRY", "EURUSD=X": "USD"}.get(sym, "TRY")
-    if sym.endswith("-TRY"):
-        return "TRY"
-    return "USD"
-
-
-def get_history(sym: str, period: str | None = None, interval: str = "1d") -> pd.DataFrame | None:
-    """Gunluk OHLCV verisi (artan tarih sirasinda). Onbellekli."""
-    period = period or HISTORY_PERIOD
-    key = (sym, period, interval)
-    now = time.time()
-    with _lock:
-        hit = _cache.get(key)
-        if hit and now - hit["ts"] < CACHE_TTL:
-            return hit["df"]
-    try:
-        df = yf.Ticker(sym).history(
-            period=period, interval=interval, auto_adjust=False
-        )
-    except Exception:
-        return None
-    if df is None or df.empty or "Close" not in df.columns:
-        return None
-    df = df.dropna(subset=["Close"]).sort_index()
-    if df.index.tz is not None:
-        df.index = df.index.tz_convert(TZ_ISTANBUL).tz_localize(None)
-    with _lock:
-        _cache[key] = {"ts": now, "df": df}
-    return df
-
-
-def resolve_symbol(raw: str) -> tuple[str, str, str] | None:
-    """Sembol girdisini dogrulanmis sembole cevirir. (sembol, tur, para) dondurur."""
-    for cand in _candidates(raw):
-        df = get_history(cand, period="5d")
-        if df is not None and not df.empty:
-            return cand, kind_of(cand), currency_of(cand)
-    return None
-
-
-def get_name(sym: str, ttl: int = 86400) -> str:
-    """Sirket adi (yavas istek, 24 saat onbelleklenir)."""
-    now = time.time()
-    with _lock:
-        hit = _name_cache.get(sym)
-        if hit and now - hit["ts"] < ttl:
-            return hit["name"]
-    name = sym
-    try:
-        info = yf.Ticker(sym).info
-        name = info.get("shortName") or info.get("longName") or sym
-    except Exception:
-        pass
-    with _lock:
-        _name_cache[sym] = {"ts": now, "name": name}
-    return name
-
-
-def _quote_from_df(df: pd.DataFrame) -> dict | None:
-    if df is None or df.empty or "Close" not in df:
-        return None
-    closes = df["Close"].dropna()
-    if len(closes) == 0:
-        return None
-    price = float(closes.iloc[-1])
-    prev = float(closes.iloc[-2]) if len(closes) > 1 else price
-    change = price - prev
-    change_pct = (change / prev * 100) if prev else 0.0
-    high = float(df["High"].max()) if "High" in df else price
-    low = float(df["Low"].min()) if "Low" in df else price
-    # Volume NaN olabilir, guvenli cevirim
-    volume = 0
-    if "Volume" in df:
-        vol_val = df["Volume"].iloc[-1]
-        if pd.notna(vol_val):
-            volume = int(vol_val)
+def _provider_quote_to_dict(q: ProviderQuote) -> dict:
+    """Provider Quote nesnesini dict'e çevirir (geriye uyumluluk)."""
     return {
-        "symbol": None,  # cagiran doldurur
-        "price": price,
-        "prev_close": prev,
-        "change": change,
-        "change_pct": change_pct,
-        "high": high,
-        "low": low,
-        "volume": volume,
+        "symbol": q.symbol,
+        "price": q.price,
+        "prev_close": q.prev_close,
+        "change": q.change,
+        "change_pct": q.change_pct,
+        "high": q.high,
+        "low": q.low,
+        "volume": q.volume,
+        "kind": q.kind,
+        "currency": q.currency,
     }
 
 
+def get_history(sym: str, period: str | None = None, interval: str = "1d") -> pd.DataFrame | None:
+    """Günlük OHLCV verisi (artan tarih sırasında). Önbellekli."""
+    provider = get_provider_chain()
+    return provider.get_history(sym, period, interval)
+
+
+def resolve_symbol(raw: str) -> tuple[str, str, str] | None:
+    """Sembol girdisini doğrulanmış sembole çevirir. (sembol, tür, para) döndürür."""
+    provider = get_provider_chain()
+    return provider.resolve_symbol(raw)
+
+
+def get_name(sym: str, ttl: int = 86400) -> str:
+    """Şirket adı (yavaş istek, 24 saat önbelleklenir)."""
+    provider = get_provider_chain()
+    return provider.get_name(sym, ttl)
+
+
 def get_quote(sym: str) -> dict | None:
-    df = get_history(sym, period=QUOTE_PERIOD)
-    q = _quote_from_df(df)
-    if q:
-        q["symbol"] = sym
-        q["kind"] = kind_of(sym)
-        q["currency"] = currency_of(sym)
-    return q
+    provider = get_provider_chain()
+    q = provider.get_quote(sym)
+    return _provider_quote_to_dict(q) if q else None
 
 
 def get_quotes_batch(symbols: list[str], period: str | None = None) -> dict[str, dict]:
-    """Birden fazla sembolun fiyatini TEK istekte ceker (tarama icin hizli)."""
-    period = period or QUOTE_PERIOD
-    out: dict[str, dict] = {}
-    todo: list[str] = []
-    now = time.time()
-
-    # Onbellekten oku
-    for sym in symbols:
-        key = (sym, period, "1d")
-        with _lock:
-            hit = _cache.get(key)
-            if hit and now - hit["ts"] < CACHE_TTL:
-                q = _quote_from_df(hit["df"])
-                if q:
-                    q["symbol"] = sym
-                    q["kind"] = kind_of(sym)
-                    q["currency"] = currency_of(sym)
-                    out[sym] = q
-                    continue
-        todo.append(sym)
-
-    if not todo:
-        return out
-
-    try:
-        df = yf.download(
-            todo, period=period, interval="1d",
-            auto_adjust=False, progress=False, threads=False,
-            group_by="ticker",
-        )
-    except Exception:
-        df = pd.DataFrame()
-
-    if df is None or df.empty:
-        return out
-
-    # MultiIndex mi?
-    if isinstance(df.columns, pd.MultiIndex):
-        for sym in todo:
-            if sym not in df.columns.get_level_values(0):
-                continue
-            sub = df[sym]
-            if isinstance(sub.columns, pd.MultiIndex):
-                sub.columns = sub.columns.get_level_values(-1)
-            q = _quote_from_df(sub)
-            if q:
-                q["symbol"] = sym
-                q["kind"] = kind_of(sym)
-                q["currency"] = currency_of(sym)
-                out[sym] = q
-                with _lock:
-                    _cache[(sym, period, "1d")] = {"ts": now, "df": sub}
-    else:
-        # Tek sembol geldi
-        sym = todo[0]
-        q = _quote_from_df(df)
-        if q:
-            q["symbol"] = sym
-            q["kind"] = kind_of(sym)
-            q["currency"] = currency_of(sym)
-            out[sym] = q
-    return out
+    """Birden fazla sembolün fiyatını TEK istekte çeker (tarama için hızlı)."""
+    provider = get_provider_chain()
+    quotes = provider.get_quotes_batch(symbols, period)
+    return {sym: _provider_quote_to_dict(q) for sym, q in quotes.items()}
 
 
 def get_fx_rate(pair: str = "TRY=X") -> float | None:
-    """Doviz kuru. Ornek: TRY=X -> 1 USD kac TRY."""
+    """Döviz kuru. Örnek: TRY=X -> 1 USD kaç TRY."""
     df = get_history(pair, period="5d")
     if df is None or df.empty:
         return None
@@ -243,7 +79,7 @@ def get_fx_rate(pair: str = "TRY=X") -> float | None:
 
 
 def is_market_open(sym: str) -> bool:
-    """Yaklasik piyasa aciklik kontrolu. Kripto her zaman acik."""
+    """Yaklaşık piyasa açıklık kontrolü. Kripto her zaman açık."""
     kind = kind_of(sym)
     if kind in ("crypto", "fx", "commodity"):
         return True
@@ -253,7 +89,7 @@ def is_market_open(sym: str) -> bool:
     t = now.time()
     if kind == "bist":
         return dtime(9, 0) <= t <= dtime(18, 0)
-    # ABD: NYSE 9:30-16:00 ET. TR saati yaklasik (kis saati ET = TR - 8)
+    # ABD: NYSE 9:30-16:00 ET. TR saati yaklaşık (kış saati ET = TR - 8)
     return dtime(16, 0) <= t <= dtime(23, 30)
 
 
@@ -267,8 +103,10 @@ def market_hours_text(sym: str) -> str:
 
 
 def get_news(sym: str, limit: int = 5) -> list[dict]:
-    """Sembol icin son haber basliklari (yfinance). Bos liste donulebilir."""
+    """Sembol için son haber başlıkları (yfinance — provider bağımsız)."""
+    # Haberler henüz provider'larda yok, yfinance kullan
     try:
+        import yfinance as yf
         items = yf.Ticker(sym).news
     except Exception:
         return []

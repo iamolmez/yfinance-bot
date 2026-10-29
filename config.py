@@ -32,6 +32,14 @@ HISTORY_PERIOD: str = os.getenv("HISTORY_PERIOD", "6mo")
 QUOTE_PERIOD: str = os.getenv("QUOTE_PERIOD", "5d")
 CACHE_TTL: int = _env_int("CACHE_TTL", 180)  # saniye
 
+# Veri sağlayıcı sıralaması (fallback zinciri): yfinance,alphavantage,twelvedata,polygon
+DATA_PROVIDERS: str = os.getenv("DATA_PROVIDERS", "yfinance")
+
+# API Keys (opsiyonel — ilgili sağlayıcı kullanıldığında gerekli)
+ALPHAVANTAGE_API_KEY: str = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
+TWELVEDATA_API_KEY: str = os.getenv("TWELVEDATA_API_KEY", "").strip()
+POLYGON_API_KEY: str = os.getenv("POLYGON_API_KEY", "").strip()
+
 # Bulut (Render) icin: Neon/Supabase gibi PostgreSQL baglanti adresi.
 # Bos birakilirsa yerel SQLite kullanilir (finance.db).
 DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip()
