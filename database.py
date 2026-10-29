@@ -45,6 +45,7 @@ _PG_ID_COL = {
     "notes": "id",
     "alert_config": "id",
     "corp_calendar": "id",
+    "user_webhooks": "id",
 }
 
 
@@ -101,7 +102,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     direction    TEXT NOT NULL CHECK(direction IN ('above','below')),
     active       INTEGER NOT NULL DEFAULT 1,
     created_at   TEXT NOT NULL,
-    triggered_at TEXT
+    triggered_at TEXT,
+    webhook_url  TEXT,
+    webhook_type TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_plan (
@@ -181,13 +184,26 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 
 CREATE TABLE IF NOT EXISTS alert_config (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER NOT NULL,
-    symbol     TEXT NOT NULL,
-    type       TEXT NOT NULL,
-    params     TEXT,
-    active     INTEGER DEFAULT 1,
-    created_at TEXT NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    symbol          TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    params          TEXT,
+    active          INTEGER DEFAULT 1,
+    created_at      TEXT NOT NULL,
+    webhook_url     TEXT,
+    webhook_type    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_webhooks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    webhook_type    TEXT NOT NULL,
+    webhook_url     TEXT NOT NULL,
+    alarm_scope     TEXT DEFAULT 'all',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE(user_id, webhook_type)
 );
 
 CREATE TABLE IF NOT EXISTS corp_calendar (
@@ -454,11 +470,12 @@ def get_expenses_by_category(user_id: int, month: str) -> list:
 
 # ---------------- Alarmlar ----------------
 
-def add_alert(user_id: int, symbol: str, target_price: float, direction: str) -> int:
+def add_alert(user_id: int, symbol: str, target_price: float, direction: str,
+              webhook_url: str = "", webhook_type: str = "") -> int:
     return execute(
-        "INSERT INTO alerts (user_id, symbol, target_price, direction, active, created_at) "
-        "VALUES (?, ?, ?, ?, 1, ?)",
-        (user_id, symbol, target_price, direction, now_iso()),
+        "INSERT INTO alerts (user_id, symbol, target_price, direction, active, created_at, webhook_url, webhook_type) "
+        "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+        (user_id, symbol, target_price, direction, now_iso(), webhook_url, webhook_type),
     )
 
 
@@ -655,11 +672,12 @@ def delete_note(note_id: int, user_id: int) -> bool:
 
 # ---------------- Gelişmiş alarmlar ----------------
 
-def add_alert_config(user_id: int, symbol: str, type_: str, params: str = "") -> int:
+def add_alert_config(user_id: int, symbol: str, type_: str, params: str = "",
+                     webhook_url: str = "", webhook_type: str = "") -> int:
     return execute(
-        "INSERT INTO alert_config (user_id, symbol, type, params, active, created_at) "
-        "VALUES (?, ?, ?, ?, 1, ?)",
-        (user_id, symbol, type_, params, now_iso()),
+        "INSERT INTO alert_config (user_id, symbol, type, params, active, created_at, webhook_url, webhook_type) "
+        "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+        (user_id, symbol, type_, params, now_iso(), webhook_url, webhook_type),
     )
 
 

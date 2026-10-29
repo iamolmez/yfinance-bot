@@ -42,13 +42,15 @@ def validate_alert_config(type_: str, params: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def create_alert(user_id: int, symbol: str, type_: str, params: dict) -> int | None:
-    """Alarm olusturur. Basarili olursa config_id dondurur."""
+def create_alert(user_id: int, symbol: str, type_: str, params: dict,
+                 webhook_url: str = "", webhook_type: str = "") -> int | None:
+    """Alarm oluşturur. Başarılı olursa config_id döndürür."""
     ok, msg = validate_alert_config(type_, params)
     if not ok:
         return None
     config_id = add_alert_config(
-        user_id, symbol, type_, json.dumps(params, ensure_ascii=False)
+        user_id, symbol, type_, json.dumps(params, ensure_ascii=False),
+        webhook_url, webhook_type
     )
     return config_id
 
@@ -153,14 +155,29 @@ def check_advanced_alerts() -> list[dict]:
 
         if hit:
             deactivate_alert_config(c["id"], c["user_id"])
-            triggered.append({
+            alert_data = {
                 "config_id": c["id"],
                 "user_id": c["user_id"],
                 "symbol": c["symbol"],
                 "type": c["type"],
                 "message": f"🔔 <b>{_ALERT_TYPES[type_]['name']} Alarmı:</b> {c['symbol']} — {msg}",
                 "current_value": current,
-            })
+            }
+            # Webhook gönder (varsa)
+            webhook_url = c["webhook_url"] if "webhook_url" in c.keys() else ""
+            webhook_type = c["webhook_type"] if "webhook_type" in c.keys() else ""
+            if webhook_url and webhook_type:
+                from services.webhooks import send_webhook, WebhookPayload
+                payload = WebhookPayload(
+                    title=f"{_ALERT_TYPES[type_]['name']} Alarmı",
+                    message=msg,
+                    symbol=sym,
+                    price=q["price"],
+                    change_pct=q.get("change_pct"),
+                    alert_type=type_,
+                )
+                send_webhook(webhook_url, webhook_type, payload)
+            triggered.append(alert_data)
     return triggered
 
 

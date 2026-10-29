@@ -2,6 +2,7 @@
 from datetime import date
 
 from services import market_data as md
+from services.webhooks import send_webhook, WebhookPayload
 
 # (user_id, symbol) -> gun (ayni gun tekrar bildirilmez)
 _last_big_move: dict[tuple, str] = {}
@@ -38,17 +39,29 @@ def check_all_alerts() -> list[dict]:
                 f"🔔 ALARM: {a['symbol']} {direction_tr}!\n"
                 f"🎯 Hedef: {target:,.2f} | Anlık: {current:,.2f} {q['currency']}"
             )
-            triggered.append(
-                {
-                    "alert_id": a["id"],
-                    "user_id": a["user_id"],
-                    "symbol": a["symbol"],
-                    "target": target,
-                    "direction": a["direction"],
-                    "current": current,
-                    "message": message,
-                }
-            )
+            alert_data = {
+                "alert_id": a["id"],
+                "user_id": a["user_id"],
+                "symbol": a["symbol"],
+                "target": target,
+                "direction": a["direction"],
+                "current": current,
+                "message": message,
+            }
+            # Webhook gönder (varsa)
+            webhook_url = a["webhook_url"] if "webhook_url" in a.keys() else ""
+            webhook_type = a["webhook_type"] if "webhook_type" in a.keys() else ""
+            if webhook_url and webhook_type:
+                payload = WebhookPayload(
+                    title="Fiyat Alarmı",
+                    message=message,
+                    symbol=a["symbol"],
+                    price=current,
+                    change_pct=q.get("change_pct"),
+                    alert_type="price",
+                )
+                send_webhook(webhook_url, webhook_type, payload)
+            triggered.append(alert_data)
             deactivate_alert(a["id"], a["user_id"])  # tek seferlik alarm
     return triggered
 

@@ -75,6 +75,7 @@ from services import (
     risk_metrics,
     signals,
     tax,
+    webhooks,
 )
 
 CUR_SYM = {"TRY": "₺", "USD": "$"}
@@ -688,9 +689,10 @@ async def cmd_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = context.args
     if len(parts) < 2:
         await update.message.reply_text(
-            "Kullanım: <code>/alarm SYMBOL FIYAT [ust|alt]</code>\n"
+            "Kullanım: <code>/alarm SYMBOL FIYAT [ust|alt] [webhook_tip webhook_url]</code>\n"
             "• <code>ust</code> → fiyat hedefin üstüne çıkınca (varsayılan)\n"
             "• <code>alt</code> → fiyat hedefin altına inince\n"
+            "• Webhook: <code>/alarm THYAO 300 ust discord https://discord.com/api/webhooks/...</code>\n"
             "Örnek: <code>/alarm THYAO 300 ust</code>"
         )
         return
@@ -699,21 +701,35 @@ async def cmd_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Hedef fiyat pozitif olmalı.")
         return
     direction = "above"
+    webhook_type = ""
+    webhook_url = ""
     if len(parts) > 2:
         d = parts[2].strip().lower()
         if d in ("alt", "below", "altı"):
             direction = "below"
+        elif d in ("discord", "slack", "ntfy", "telegram", "json", "pushover", "email"):
+            webhook_type = d
+            if len(parts) > 3:
+                webhook_url = parts[3]
+    elif len(parts) > 3:
+        # 4. parametre webhook olabilir
+        d3 = parts[3].strip().lower()
+        if d3 in ("discord", "slack", "ntfy", "telegram", "json", "pushover", "email"):
+            webhook_type = d3
+            if len(parts) > 4:
+                webhook_url = parts[4]
+
     resolved = await to_thread(md.resolve_symbol, parts[0])
     if not resolved:
         await update.message.reply_text(f"❌ <b>{parts[0]}</b> bulunamadı.")
         return
     sym, kind, cur = resolved
-    aid = add_alert(update.effective_user.id, sym, target, direction)
+    aid = add_alert(update.effective_user.id, sym, target, direction, webhook_url, webhook_type)
     d_text = "üstüne çıktığında" if direction == "above" else "altına indiğinde"
-    await update.message.reply_text(
-        f"🔔 Alarm kuruldu (ID: {aid})\n"
-        f"📌 {sym} {fmt_money(target, cur)} seviyesinin {d_text} haber verilecek."
-    )
+    msg = f"🔔 Alarm kuruldu (ID: {aid})\n📌 {sym} {fmt_money(target, cur)} seviyesinin {d_text} haber verilecek."
+    if webhook_type:
+        msg += f"\n🔗 Webhook: {webhook_type}"
+    await update.message.reply_text(msg)
 
 
 @restricted
@@ -1309,7 +1325,7 @@ async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def cmd_advanced_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarm2 SYMBOL TÜR PARAMETRELER — gelişmiş alarm."""
+    """/alarm2 SYMBOL TÜR PARAMETRELER [webhook_tip webhook_url] — gelişmiş alarm."""
     args = context.args
     if len(args) < 3:
         await update.message.reply_text(advanced_alerts.format_alert_help())
@@ -1335,12 +1351,22 @@ async def cmd_advanced_alert(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(advanced_alerts.format_alert_help())
         return
 
+    # Webhook parametreleri (opsiyonel, sonda)
+    webhook_type = ""
+    webhook_url = ""
+    remaining = args[4:] if type_ in ("rsi", "bb", "price") else args[3:]
+    if remaining:
+        if remaining[0] in ("discord", "slack", "ntfy", "telegram", "json", "pushover", "email"):
+            webhook_type = remaining[0]
+            if len(remaining) > 1:
+                webhook_url = remaining[1]
+
     resolved = await to_thread(md.resolve_symbol, args[0])
     if not resolved:
         await update.message.reply_text(f"❌ Sembol bulunamadı.")
         return
     sym = resolved[0]
-    config_id = advanced_alerts.create_alert(update.effective_user.id, sym, args[1].lower(), params)
+    config_id = advanced_alerts.create_alert(update.effective_user.id, sym, args[1].lower(), params, webhook_url, webhook_type)
     if config_id:
         await update.message.reply_text(
             f"🔔 Gelişmiş alarm kuruldu (ID: {config_id}): {sym} {args[1]} {params}"
@@ -1378,6 +1404,164 @@ async def cmd_advanced_alert_remove(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text(f"🗑️ Alarm <b>#{arg}</b> silindi.")
     else:
         await update.message.reply_text(f"❌ Alarm <b>#{arg}</b> bulunamadı.")
+
+
+@restricted
+async def cmd_webhook_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarmwebhook TIP URL [ALARM_TIP] — webhook ekle (discord, slack, ntfy, pushover, telegram, json, email).
+    
+    Örnekler:
+    /alarmwebhook discord https://discord.com/api/webhooks/... 
+    /alarmwebhook slack https://hooks.slack.com/services/...
+    /alarmwebhook ntfy https://ntfy.sh/my-topic
+    /alarmwebhook telegram tg://BOT_TOKEN/CHAT_ID
+    /alarmwebhook json https://my-api.com/webhook
+    /alarmwebhook pushover pushover://user=xxx&token=yyy
+    /alarmwebhook email email://to@example.com?api_key=xxx
+    
+    ALARM_TIP: all (tümü), price (fiyat), advanced (gelişmiş), bigmove (ani hareket)
+    """
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Kullanım: <code>/alarmwebhook TIP URL [ALARM_TIP]</code>\n\n"
+            "TIP: discord, slack, ntfy, telegram, json, pushover, email\n"
+            "ALARM_TIP: all, price, advanced, bigmove (varsayılan: all)\n\n"
+            "Örnekler:\n"
+            "<code>/alarmwebhook discord https://discord.com/api/webhooks/xxx</code>\n"
+            "<code>/alarmwebhook slack https://hooks.slack.com/services/xxx</code>\n"
+            "<code>/alarmwebhook ntfy https://ntfy.sh/my-topic</code>\n"
+            "<code>/alarmwebhook telegram tg://BOT_TOKEN/CHAT_ID</code>\n"
+            "<code>/alarmwebhook json https://api.mysite.com/webhook</code>"
+        )
+        return
+
+    webhook_type = args[0].lower()
+    webhook_url = args[1]
+    alarm_scope = args[2].lower() if len(args) > 2 else "all"
+
+    valid_types = {"discord", "slack", "ntfy", "telegram", "json", "pushover", "email"}
+    if webhook_type not in valid_types:
+        await update.message.reply_text(f"❌ Geçersiz tip. Kullanılabilir: {', '.join(valid_types)}")
+        return
+
+    valid_scopes = {"all", "price", "advanced", "bigmove"}
+    if alarm_scope not in valid_scopes:
+        await update.message.reply_text(f"❌ Geçersiz alarm kapsamı. Kullanılabilir: {', '.join(valid_scopes)}")
+        return
+
+    # Webhook'ı kaydet - basit versiyon: kullanıcıya özel bir config tutuyoruz
+    # Gerçek implementasyonda ayrı bir tablo olmalı
+    from database import execute, query
+    user_id = update.effective_user.id
+
+    # Mevcut webhookları getir
+    existing = query(
+        "SELECT webhook_url, webhook_type, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+        (user_id, webhook_type)
+    )
+
+    if existing:
+        # Güncelle
+        execute(
+            "UPDATE user_webhooks SET webhook_url = ?, alarm_scope = ?, updated_at = ? WHERE user_id = ? AND webhook_type = ?",
+            (webhook_url, alarm_scope, now_iso(), user_id, webhook_type)
+        )
+        await update.message.reply_text(f"✅ {webhook_type} webhook güncellendi (kapsam: {alarm_scope})")
+    else:
+        # Yeni ekle
+        execute(
+            "INSERT INTO user_webhooks (user_id, webhook_type, webhook_url, alarm_scope, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, webhook_type, webhook_url, alarm_scope, now_iso(), now_iso())
+        )
+        await update.message.reply_text(f"✅ {webhook_type} webhook eklendi (kapsam: {alarm_scope})")
+
+
+@restricted
+async def cmd_webhook_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarmwebhooklar — aktif webhookları listele."""
+    from database import query
+    user_id = update.effective_user.id
+
+    webhooks_list = query(
+        "SELECT webhook_type, webhook_url, alarm_scope, created_at FROM user_webhooks WHERE user_id = ? ORDER BY created_at",
+        (user_id,)
+    )
+
+    if not webhooks_list:
+        await update.message.reply_text("🔕 Kaydedilmiş webhook yok. <code>/alarmwebhook TIP URL</code> ile ekle.")
+        return
+
+    lines = ["🔔 <b>Kaydedilmiş Webhook'lar</b>\n"]
+    for w in webhooks_list:
+        url_preview = w["webhook_url"][:50] + "..." if len(w["webhook_url"]) > 50 else w["webhook_url"]
+        lines.append(f"• <b>{w['webhook_type']}</b>: {url_preview} (kapsam: {w['alarm_scope']})")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_webhook_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarmwebhooksil TIP — webhook sil."""
+    arg = _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/alarmwebhooksil TIP</code> (tip: discord, slack, ntfy, vb.)")
+        return
+
+    from database import execute
+    user_id = update.effective_user.id
+
+    cur = execute(
+        "DELETE FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+        (user_id, arg.lower())
+    )
+
+    if cur > 0:
+        await update.message.reply_text(f"🗑️ {arg} webhook silindi.")
+    else:
+        await update.message.reply_text(f"❌ {arg} webhook bulunamadı.")
+
+
+@restricted
+async def cmd_webhook_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alarmwebhooktest TIP — webhook test et."""
+    arg = _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/alarmwebhooktest TIP</code>")
+        return
+
+    from database import query
+    from services.webhooks import send_webhook, WebhookPayload
+
+    user_id = update.effective_user.id
+    webhook_type = arg.lower()
+
+    w = query(
+        "SELECT webhook_url, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+        (user_id, webhook_type)
+    )
+
+    if not w:
+        await update.message.reply_text(f"❌ {webhook_type} webhook bulunamadı. Önce <code>/alarmwebhook {webhook_type} URL</code> ile ekle.")
+        return
+
+    webhook_url = w[0]["webhook_url"]
+    payload = WebhookPayload(
+        title="🧪 Test Bildirimi",
+        message="Bu bir test mesajıdır. Webhook çalışıyor! ✅",
+        symbol="TEST",
+        price=100.0,
+        change_pct=5.0,
+        alert_type="test",
+    )
+
+    success = send_webhook(webhook_url, webhook_type, payload)
+
+    if success:
+        await update.message.reply_text(f"✅ {webhook_type} test bildirimi gönderildi!")
+    else:
+        await update.message.reply_text(f"❌ {webhook_type} test bildirimi gönderilemedi. URL/token kontrol edin.")
 
 
 @restricted
@@ -1884,6 +2068,11 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("alarm2", cmd_advanced_alert))
     app.add_handler(CommandHandler("alarm2lar", cmd_advanced_alerts_list))
     app.add_handler(CommandHandler("alarm2sil", cmd_advanced_alert_remove))
+    # Webhook komutları
+    app.add_handler(CommandHandler("alarmwebhook", cmd_webhook_add))
+    app.add_handler(CommandHandler("alarmwebhooklar", cmd_webhook_list))
+    app.add_handler(CommandHandler("alarmwebhooksil", cmd_webhook_remove))
+    app.add_handler(CommandHandler("alarmwebhooktest", cmd_webhook_test))
     app.add_handler(CommandHandler("performans", cmd_performance))
     app.add_handler(CommandHandler("vergiraporu", cmd_tax_report))
     app.add_handler(CommandHandler("csv", cmd_csv_export))
