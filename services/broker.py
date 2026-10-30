@@ -49,8 +49,8 @@ class BrokerCommission:
 
 # Tanımlı brokerlar
 BROKERS = {
-    "midast": BrokerCommission(
-        name="MİDAŞ",
+    "midas": BrokerCommission(
+        name="MİDAS",
         fixed_per_lot_us=1.50,
         fixed_per_lot_bist=2.50,
         fixed_per_lot_crypto=0.0,
@@ -262,7 +262,7 @@ def format_comparison(comparison: list[dict], symbol: str, market: str) -> str:
 
 
 # Kullanıcı broker tercihi (database'e kaydedilecek)
-DEFAULT_BROKER = "midast"  # Varsayılan
+DEFAULT_BROKER = "midas"  # Varsayılan
 
 
 def get_user_broker(user_id: int) -> str:

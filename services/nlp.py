@@ -13,7 +13,7 @@ Ornekler:
   "durumum ne"             -> {"action": "status"}
   "akşam analizi yap"      -> {"action": "evening"}
   "broker karşılaştır THYAO" -> {"action": "broker", "symbol": "THYAO.IS"}
-  "broker ayarla midast"   -> {"action": "broker_set", "broker": "midast"}
+  "broker ayarla midas"   -> {"action": "broker_set", "broker": "midas"}
   "saatler THYAO"          -> {"action": "hours", "symbol": "THYAO.IS"}
   "hangi saatte almalıyım" -> {"action": "hours"}
 """
@@ -83,7 +83,7 @@ def parse(text: str) -> dict:
             # broker_set için broker adını çıkar
             broker_name = None
             if action == "broker_set":
-                for b in ["midast", "isyatirim", "garanti", "vakif", "deniz", "komisyonsuz_bist", "interactive_brokers"]:
+                for b in ["midas", "isyatirim", "garanti", "vakif", "deniz", "komisyonsuz_bist", "interactive_brokers"]:
                     if b in low:
                         broker_name = b
                         break

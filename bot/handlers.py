@@ -213,7 +213,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/saatler [SYMBOL] — <b>optimum işlem saatleri + sinyal kalitesi (0-100)</b>\n\n"
         "<b>🏦 Broker Karşılaştırma & Akşam Analizi</b>\n"
         "/broker SYMBOL — <b>7 broker maliyet karşılaştırması</b> (Midast, Garanti, İş, Vakıf, Deniz, Komisyonsuz, IBKR)\n"
-        "/brokerayarla BROKER — varsayılan broker ayarla (midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers)\n"
+        "/brokerayarla BROKER — varsayılan broker ayarla (midas, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers)\n"
         "/aksam — <b>akşam al/sat analizi</b> (portföy + sinyaller + broker maliyeti + stop-loss)\n\n"
         "<b>🔔 Webhook Alarmları (7 Platform)</b>\n"
         "/alarmwebhook TIP URL [KAPSAM] — webhook ekle (discord, slack, ntfy, telegram, json, pushover, email)\n"
@@ -236,7 +236,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>💬 Doğal Dil (Komut yazmaya gerek yok)</b>\n"
         "<code>akşam analizi yap</code> → /aksam\n"
         "<code>broker karşılaştır THYAO</code> → /broker THYAO\n"
-        "<code>broker ayarla midast</code> → /brokerayarla midast\n"
+        "<code>broker ayarla midas</code> → /brokerayarla midas\n"
         "<code>saatler THYAO</code> → /saatler THYAO\n"
         "<code>hangi saatte almalıyım</code> → /saatler\n\n"
         "⚠️ <i>Sinyaller yatirim tavsiyesi degildir.</i>"
@@ -1110,7 +1110,7 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
                     self.args = args
             await cmd_broker_set(update, FakeContext([broker_name]))
         else:
-            await update.message.reply_text("Hangi broker? Örn: midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers")
+            await update.message.reply_text("Hangi broker? Örn: midas, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers")
         return True
     if action == "hours":
         await cmd_trading_hours(update, None)
@@ -1720,7 +1720,7 @@ async def cmd_broker_compare(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def cmd_broker_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/brokerayarla BROKER — varsayılan broker ayarla.
     
-    Kullanılabilir: midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers
+    Kullanılabilir: midas, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers
     """
     arg = _arg(context, 0)
     if not arg:
@@ -2210,7 +2210,9 @@ def _get_budget_row(user_id: int):
 def register_handlers(app) -> None:
     # Onboarding sohbet akisi, catch-all metin isleyiciden ONCE eklenmeli
     from bot.onboarding import onboarding_handler
+    from bot.broker_onboarding import broker_setup_handler
     app.add_handler(onboarding_handler())
+    app.add_handler(broker_setup_handler())
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
