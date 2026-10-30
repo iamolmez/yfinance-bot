@@ -549,7 +549,7 @@ async def cmd_sifirla(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Doğrudan sil
-    counts = await to_thread(reset_user_data, user.id, keep_budget=True, keep_cash=True)
+    counts = await to_thread(functools.partial(reset_user_data, keep_budget=True, keep_cash=True), user.id)
     lines = [
         "🗑️ <b>Veriler sıfırlandı</b>",
         "",
