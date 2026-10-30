@@ -75,6 +75,7 @@ from services import (
     risk_metrics,
     signals,
     tax,
+    trading_hours,
     webhooks,
 )
 
@@ -519,33 +520,92 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
     if len(parts) < 3:
         verb = "ekle" if side == "BUY" else "sat"
         await update.message.reply_text(
-            f"Kullanım: <code>/{verb} SYMBOL ADET FIYAT</code>\n"
-            f"Örnek: <code>/{verb} THYAO 100 250</code>"
+            f"Kullanım: <code>/{verb} SYMBOL ADET FIYAT [KOMISYON]</code>\n"
+            f"Örnek: <code>/{verb} THYAO 100 250</code>\n"
+            f"<b>US hisse için dolar tutarı:</b> <code>/{verb} AAPL 1000 150</code> → $1000 değerinde al (150$/adet)\n"
+            f"Komisyonlu: <code>/{verb} AAPL 1000 150 1.5</code> → $1.5 komisyon dahil"
         )
         return
-    qty = parse_number(parts[1])
-    price = parse_number(parts[2])
-    note = " ".join(parts[3:]) if len(parts) > 3 else ""
-    if qty is None or qty <= 0 or price is None or price <= 0:
-        await update.message.reply_text("❌ Adet ve fiyat pozitif sayı olmalı.")
-        return
+    
     resolved = await to_thread(md.resolve_symbol, parts[0])
     if not resolved:
         await update.message.reply_text(f"❌ <b>{parts[0]}</b> bulunamadı.")
         return
     sym, kind, cur = resolved
+    
+    price = parse_number(parts[2])
+    if price is None or price <= 0:
+        await update.message.reply_text("❌ Fiyat pozitif sayı olmalı.")
+        return
+    
+    # Komisyon (opsiyonel 4. parametre)
+    commission = 0.0
+    note = ""
+    if len(parts) >= 4:
+        # Son parametre not mu komisyon mu?
+        last = parse_number(parts[-1])
+        if last is not None and last >= 0:
+            commission = last
+            note = " ".join(parts[3:-1]) if len(parts) > 4 else ""
+        else:
+            note = " ".join(parts[3:])
+    
     verb = "ALIŞ" if side == "BUY" else "SATIŞ"
+    
     if side == "BUY":
-        await to_thread(portfolio.buy, update.effective_user.id, sym, qty, price, cur, note)
-        cash_delta = -(qty * price)
+        # US hisse ve dolar bazlı giriş kontrolü
+        # Eğer 2. parametre büyükse ve US hisse ise dolar tutarı olarak kabul et
+        second_param = parse_number(parts[1])
+        if second_param is not None and second_param > 0:
+            if kind == "us" and cur == "USD" and second_param >= 100:
+                # Dolar tutarı girişi: qty = (amount - commission) / price
+                from services.portfolio import calculate_qty_from_amount
+                qty = calculate_qty_from_amount(second_param, price, commission)
+                if qty <= 0:
+                    await update.message.reply_text("❌ Komisyon tutarından büyük olmalı.")
+                    return
+                await update.message.reply_text(
+                    f"💡 <b>Dolar tutarı modu</b>: ${second_param:,.2f} / ${price:,.2f} = {qty:.4f} lot\n"
+                    f"Komisyon: ${commission:,.2f} | Net: ${second_param - commission:,.2f}"
+                )
+            else:
+                # Normal adet girişi
+                qty = second_param
+        else:
+            await update.message.reply_text("❌ Adet/tutar pozitif sayı olmalı.")
+            return
+        
+        if qty <= 0:
+            await update.message.reply_text("❌ Hesaplanan adet sıfır veya negatif.")
+            return
+        
+        total_cost = qty * price + commission
+        await to_thread(portfolio.buy, update.effective_user.id, sym, qty, price, cur, note, commission)
+        cash_delta = -total_cost
     else:
-        await to_thread(portfolio.sell, update.effective_user.id, sym, qty, price, cur, note)
-        cash_delta = qty * price
+        qty = parse_number(parts[1])
+        if qty is None or qty <= 0:
+            await update.message.reply_text("❌ Adet pozitif sayı olmalı.")
+            return
+        total_value = qty * price - commission
+        await to_thread(portfolio.sell, update.effective_user.id, sym, qty, price, cur, note, commission)
+        cash_delta = total_value
+    
     new_balance = await to_thread(add_cash, update.effective_user.id, cash_delta)
+    
+    if side == "BUY":
+        cost_info = f"{qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}"
+        if commission > 0:
+            cost_info += f" + komisyon {fmt_money(commission, cur)}"
+    else:
+        cost_info = f"{qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}"
+        if commission > 0:
+            cost_info += f" - komisyon {fmt_money(commission, cur)}"
+    
     await update.message.reply_text(
         f"✅ <b>{verb} kaydedildi</b>\n"
-        f"📌 {sym}: {qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}\n"
-        f"[PARA] Nakit: {new_balance:,.2f} ₺"
+        f"📌 {sym}: {cost_info}\n"
+        f"[PARA] Nakit: {fmt_money(new_balance, 'TRY')}"
     )
 
 
@@ -1329,6 +1389,35 @@ async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_trading_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/saatler [SYMBOL] — optimum işlem saatleri ve sinyal kalitesi.
+    
+    Sembol verilirse o sembol için analiz yapar.
+    Sembol verilmezse haftalık genel programı gösterir.
+    
+    Örnekler:
+    /saatler          → Haftalık program
+    /saatler THYAO    → BIST için saatlik analiz
+    /saatler AAPL     → ABD için saatlik analiz
+    /saatler BTC      → Kripto için saatlik analiz
+    """
+    arg = _arg(context, 0)
+    if not arg:
+        msg = trading_hours.get_weekly_schedule()
+        await update.message.reply_text(msg)
+        return
+    
+    resolved = await to_thread(md.resolve_symbol, arg)
+    if not resolved:
+        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
+        return
+    
+    sym = resolved[0]
+    msg = trading_hours.get_trading_hours_advice(sym)
+    await update.message.reply_text(msg)
+
+
+@restricted
 async def cmd_advanced_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/alarm2 SYMBOL TÜR PARAMETRELER [webhook_tip webhook_url] — gelişmiş alarm."""
     args = context.args
@@ -2070,6 +2159,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("notlar", cmd_notes))
     app.add_handler(CommandHandler("karsilastir", cmd_compare))
     app.add_handler(CommandHandler("takvim", cmd_calendar))
+    app.add_handler(CommandHandler("saatler", cmd_trading_hours))
     app.add_handler(CommandHandler("alarm2", cmd_advanced_alert))
     app.add_handler(CommandHandler("alarm2lar", cmd_advanced_alerts_list))
     app.add_handler(CommandHandler("alarm2sil", cmd_advanced_alert_remove))
