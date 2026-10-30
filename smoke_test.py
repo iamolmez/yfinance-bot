@@ -120,19 +120,28 @@ def main():
     print("== Dogal dil ==")
     from services import nlp
     cases = {
-        "BTC ne durumda?": ("price", "BTC-USD"),
-        "THYAO alınır mı?": ("signal", "THYAO.IS"),
-        "bu ay ne kadar harcadım?": ("expense", None),
-        "portföyüm nasıl?": ("portfolio", None),
-        "ne almalıyım?": ("signals", None),
-        "bana bir şey öğret": ("tip", None),
-        "planımı göster": ("plan", None),
+        "BTC ne durumda?": ("price", "BTC-USD", None),
+        "THYAO alınır mı?": ("signal", "THYAO.IS", None),
+        "bu ay ne kadar harcadım?": ("expense", None, None),
+        "portföyüm nasıl?": ("portfolio", None, None),
+        "ne almalıyım?": ("signals", None, None),
+        "bana bir şey öğret": ("tip", None, None),
+        "planımı göster": ("plan", None, None),
+        "akşam analizi yap": ("evening", None, None),
+        "aksam rapor": ("evening", None, None),
+        "broker karşılaştır THYAO": ("broker", "THYAO.IS", None),
+        "hangi broker ucuz AAPL": ("broker", "AAPL", None),
+        "broker ayarla midast": ("broker_set", None, "midast"),
+        "varsayılan broker garanti": ("broker_set", None, "garanti"),
+        "saatler THYAO": ("hours", "THYAO.IS", None),
+        "hangi saatte almalıyım": ("hours", None, None),
     }
-    for text, (want_action, want_sym) in cases.items():
+    for text, (want_action, want_sym, want_broker) in cases.items():
         p = nlp.parse(text)
         ok_action = p["action"] == want_action
         ok_sym = (p.get("symbol") == want_sym) if want_sym else (p.get("symbol") in (None, want_sym))
-        check(f"nlp: {text}", ok_action and ok_sym, f"-> {p}")
+        ok_broker = (p.get("broker") == want_broker) if want_broker else True
+        check(f"nlp: {text}", ok_action and ok_sym and ok_broker, f"-> {p}")
 
     print("== Ani hareket alarmi ==")
     from database import add_watch as db_add_watch

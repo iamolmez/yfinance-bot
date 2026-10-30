@@ -167,25 +167,26 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>📊 Piyasa</b>\n"
         "/hisse SYMBOL — anlık fiyat + analiz (orn: THYAO, AAPL, BTC)\n"
         "/analiz SYMBOL — detayli teknik analiz\n"
-        "/grafik SYMBOL [PERIYOT] — fiyat + SMA + Bollinger + RSI grafigi\n"
+        "/grafik SYMBOL [PERIYOT] [TEMA] — fiyat + SMA + Bollinger + RSI grafigi (tema: light/dark)\n"
         "/dolar — guncei doviz kurları\n\n"
         "<b>🔔 Takip & Sinyal</b>\n"
         "/takip SYMBOL — takip listesine ekle\n"
         "/takipler — takip listen\n"
         "/silah SYMBOL — listeden cikar\n"
         "/sinyal — tum listeni tara, sinyalleri goster\n"
-        "/alarm SYMBOL FIYAT [ust|alt] — fiyat alarmı\n"
+        "/alarm SYMBOL FIYAT [ust|alt] [webhook_tip webhook_url] — fiyat alarmı + webhook\n"
         "/alarmlar — alarmlarin\n"
         "/alarmsil ID — alarmı sil\n\n"
         "<b>🤖 Otomatik & Gelismis</b>\n"
         "/oner — Bot kendisi hisse secer (guvenli + riskli karisim)\n"
-        "/alarm2 SYMBOL TUR PARAM — gelismis alarm (RSI/MACD/BB/Hacim/Fiyat)\n"
+        "/alarm2 SYMBOL TUR PARAM [webhook_tip webhook_url] — gelismis alarm (RSI/MACD/BB/Hacim/Fiyat)\n"
         "/alarm2lar — aktif gelismis alarmlar\n"
         "/alarm2sil ID — gelismis alarm sil\n\n"
-        "<b>💼 Portfoy</b>\n"
-        "/ekle SYMBOL ADET FIYAT — alim kaydet\n"
-        "/sat SYMBOL ADET FIYAT — satis kaydet\n"
-        "/portfoy — portfoy ozeti ve kar/zarar\n"
+        "<b>💼 Portfoy (Komisyon Destekli)</b>\n"
+        "/ekle SYMBOL ADET FIYAT [KOMISYON] — alim kaydet (komisyon opsiyonel)\n"
+        "/ekle SYMBOL TUTAR FIYAT [KOMISYON] — <b>US hisse: dolar tutarı gir, lotu bot hesaplar</b>\n"
+        "/sat SYMBOL ADET FIYAT [KOMISYON] — satis kaydet\n"
+        "/portfoy — portfoy ozeti ve kar/zarar (komisyon dahil)\n"
         "/islemler — islem gecmisi\n"
         "/karsilastir SYM1 SYM2 — iki hisse karsilastirma\n\n"
         "<b>📈 Analiz & Risk</b>\n"
@@ -206,9 +207,19 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/nakit [TUTAR] — eldeki nakit goster/ayarla\n"
         "/maasgunu GUN — maas gununu ayarla (orn: 8)\n"
         "/temettutakip [YIL] — temettu ozeti + DRIP onerileri\n\n"
-        "<b>📊 Performans & Takvim</b>\n"
+        "<b>📊 Performans & Takvim & Saatler</b>\n"
         "/performans — performans atfi (hangi karar ne kazandirdi)\n"
-        "/takvim [GUN] — kurumsal takvim (temettu, ceyrek, bolunme)\n\n"
+        "/takvim [GUN] — kurumsal takvim (temettu, ceyrek, bolunme)\n"
+        "/saatler [SYMBOL] — <b>optimum işlem saatleri + sinyal kalitesi (0-100)</b>\n\n"
+        "<b>🏦 Broker Karşılaştırma & Akşam Analizi</b>\n"
+        "/broker SYMBOL — <b>7 broker maliyet karşılaştırması</b> (Midast, Garanti, İş, Vakıf, Deniz, Komisyonsuz, IBKR)\n"
+        "/brokerayarla BROKER — varsayılan broker ayarla (midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers)\n"
+        "/aksam — <b>akşam al/sat analizi</b> (portföy + sinyaller + broker maliyeti + stop-loss)\n\n"
+        "<b>🔔 Webhook Alarmları (7 Platform)</b>\n"
+        "/alarmwebhook TIP URL [KAPSAM] — webhook ekle (discord, slack, ntfy, telegram, json, pushover, email)\n"
+        "/alarmwebhooklar — kaydedilmiş webhooklar\n"
+        "/alarmwebhooksil TIP — webhook sil\n"
+        "/alarmwebhooktest TIP — test gönder\n\n"
         "<b>💾 Yedek & Veri</b>\n"
         "/yedek — GitHub Gist'e sifreli tam yedek\n"
         "/yedekal GIST_ID — yedekten restore\n"
@@ -222,6 +233,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>⚙️ Kurulum</b>\n"
         "/basla — 3 soruluk kurulum (maas, gun, risk)\n"
         "/menu — Ana menu (butonlarla tum islemler)\n\n"
+        "<b>💬 Doğal Dil (Komut yazmaya gerek yok)</b>\n"
+        "<code>akşam analizi yap</code> → /aksam\n"
+        "<code>broker karşılaştır THYAO</code> → /broker THYAO\n"
+        "<code>broker ayarla midast</code> → /brokerayarla midast\n"
+        "<code>saatler THYAO</code> → /saatler THYAO\n"
+        "<code>hangi saatte almalıyım</code> → /saatler\n\n"
         "⚠️ <i>Sinyaller yatirim tavsiyesi degildir.</i>"
     )
     await update.message.reply_text(text)
@@ -1077,6 +1094,26 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
             await update.message.reply_text(assistant.describe_plan(plan, plan_row["emergency_saved"] or 0))
         else:
             await update.message.reply_text("📋 Planın yok. 2 dakikada oluşturalım: <code>/basla</code>")
+        return True
+    if action == "evening":
+        await cmd_evening_analysis(update, None)
+        return True
+    if action == "broker" and symbol:
+        await cmd_broker_compare(update, None)
+        return True
+    if action == "broker_set":
+        broker_name = parsed.get("broker")
+        if broker_name:
+            # Simulate command with broker name
+            class FakeContext:
+                def __init__(self, args):
+                    self.args = args
+            await cmd_broker_set(update, FakeContext([broker_name]))
+        else:
+            await update.message.reply_text("Hangi broker? Örn: midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers")
+        return True
+    if action == "hours":
+        await cmd_trading_hours(update, None)
         return True
     return False
 

@@ -11,6 +11,11 @@ Ornekler:
   "bana bir şey öğret"     -> {"action": "tip"}
   "planımı göster"         -> {"action": "plan"}
   "durumum ne"             -> {"action": "status"}
+  "akşam analizi yap"      -> {"action": "evening"}
+  "broker karşılaştır THYAO" -> {"action": "broker", "symbol": "THYAO.IS"}
+  "broker ayarla midast"   -> {"action": "broker_set", "broker": "midast"}
+  "saatler THYAO"          -> {"action": "hours", "symbol": "THYAO.IS"}
+  "hangi saatte almalıyım" -> {"action": "hours"}
 """
 import re
 
@@ -32,6 +37,10 @@ _STRONG = {
     "news": ["haber", "son haber", "gündem", "ne var haberlerde"],
     "temel": ["temel analiz", "temel veri", "finansal", "şirket değeri", "sirket degeri", "f/k", "fk ne"],
     "signals": ["sinyal", "alınır mı", "alinir mi", "alınmalı", "firsat", "fırsat", "ne almalıyım", "öneri", "oneri", "tavsiye", "hisse öner"],
+    "evening": ["akşam analizi", "aksam analizi", "akşam rapor", "aksam rapor", "bugün ne yapmalı", "bugun ne yapmali", "satmalı mı", "satmali mi", "almalı mı", "almalimi"],
+    "broker": ["broker karşılaştır", "broker karsilastir", "hangi broker", "komisyon karşılaştır", "komisyon karsilastir", "ucuz broker", "en ucuz broker"],
+    "broker_set": ["broker ayarla", "varsayılan broker", "varsayilan broker", "broker sec", "broker seç"],
+    "hours": ["saatler", "hangi saatte", "ne zaman almalı", "ne zaman satmalı", "işlem saati", "islem saati", "piyasa açık mı", "piyasa acik mi", "en iyi saat"],
 }
 
 # Sembol aramasinda atlanacak yaygin kelimeler
@@ -62,21 +71,30 @@ def _find_symbol(text_upper: str) -> str | None:
 
 
 def parse(text: str) -> dict:
-    """Metni cozumler. {'action': ..., 'symbol': ...} dondurur."""
+    """Metni cozumler. {'action': ..., 'symbol': ..., 'broker': ...} dondurur."""
     low = text.lower()
     upper = text.upper()
 
     # 1) Guclu niyetler
     for action, kws in _STRONG.items():
         if any(kw in low for kw in kws):
-            symbol = _find_symbol(upper) if action in ("signal", "signals") else None
+            symbol = _find_symbol(upper) if action in ("signal", "signals", "broker", "hours") else None
+            
+            # broker_set için broker adını çıkar
+            broker_name = None
+            if action == "broker_set":
+                for b in ["midast", "isyatirim", "garanti", "vakif", "deniz", "komisyonsuz_bist", "interactive_brokers"]:
+                    if b in low:
+                        broker_name = b
+                        break
+            
             if symbol and action == "signals":
                 return {"action": "signal", "symbol": symbol}
-            return {"action": action, "symbol": symbol}
+            return {"action": action, "symbol": symbol, "broker": broker_name}
 
     # 2) Sembol varsa fiyat sorusu
     symbol = _find_symbol(upper)
     if symbol:
         return {"action": "price", "symbol": symbol}
 
-    return {"action": None, "symbol": None}
+    return {"action": None, "symbol": None, "broker": None}
