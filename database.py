@@ -217,9 +217,11 @@ CREATE TABLE IF NOT EXISTS corp_calendar (
 );
 
 CREATE TABLE IF NOT EXISTS cash (
-    user_id    INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    currency   TEXT NOT NULL DEFAULT 'TRY',
     balance    REAL NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, currency)
 );
 
 CREATE INDEX IF NOT EXISTS idx_txn_user   ON transactions(user_id);
@@ -317,6 +319,19 @@ def migrate_db() -> None:
         """
         ALTER TABLE alert_config 
         ADD COLUMN IF NOT EXISTS webhook_type TEXT
+        """,
+        # cash: add currency column and change PK to composite
+        """
+        ALTER TABLE cash 
+        ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'TRY'
+        """,
+        """
+        ALTER TABLE cash 
+        DROP CONSTRAINT IF EXISTS cash_pkey
+        """,
+        """
+        ALTER TABLE cash 
+        ADD PRIMARY KEY (user_id, currency)
         """,
     ]
     
@@ -777,31 +792,37 @@ def get_corp_calendar_for_symbol(symbol: str) -> list:
 
 # ---------------- Nakit hesabi (eldeki para) ----------------
 
-def get_cash(user_id: int) -> float:
-    row = query_one("SELECT balance FROM cash WHERE user_id = ?", (user_id,))
+def get_cash(user_id: int, currency: str = "TRY") -> float:
+    row = query_one("SELECT balance FROM cash WHERE user_id = ? AND currency = ?", (user_id, currency))
     return float(row["balance"]) if row else 0.0
 
 
-def add_cash(user_id: int, amount: float) -> float:
+def get_all_cash(user_id: int) -> dict:
+    """Tüm para birimlerindeki nakit bakiyeleri döndürür."""
+    rows = query("SELECT currency, balance FROM cash WHERE user_id = ?", (user_id,))
+    return {r["currency"]: float(r["balance"]) for r in rows}
+
+
+def add_cash(user_id: int, amount: float, currency: str = "TRY") -> float:
     """Nakti gunceller. Yeni bakiyeyi dondurur."""
     execute(
-        "INSERT INTO cash (user_id, balance, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET "
+        "INSERT INTO cash (user_id, currency, balance, updated_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, currency) DO UPDATE SET "
         "balance = cash.balance + excluded.balance, updated_at = excluded.updated_at",
-        (user_id, amount, now_iso()),
+        (user_id, currency, amount, now_iso()),
     )
-    return get_cash(user_id)
+    return get_cash(user_id, currency)
 
 
-def set_cash(user_id: int, amount: float) -> float:
+def set_cash(user_id: int, amount: float, currency: str = "TRY") -> float:
     """Nakti dogrudan ayarlar (baslangic bakiyesi / duzeltme)."""
     execute(
-        "INSERT INTO cash (user_id, balance, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET "
+        "INSERT INTO cash (user_id, currency, balance, updated_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, currency) DO UPDATE SET "
         "balance = excluded.balance, updated_at = excluded.updated_at",
-        (user_id, amount, now_iso()),
+        (user_id, currency, amount, now_iso()),
     )
-    return get_cash(user_id)
+    return get_cash(user_id, currency)
 
 
 def reset_user_data(user_id: int, keep_budget: bool = True, keep_cash: bool = True) -> dict:

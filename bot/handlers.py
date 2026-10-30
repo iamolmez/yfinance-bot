@@ -628,12 +628,11 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
     verb = "ALIŞ" if side == "BUY" else "SATIŞ"
     
     if side == "BUY":
-        # US hisse ve dolar bazlı giriş kontrolü
-        # Eğer 2. parametre büyükse ve US hisse ise dolar tutarı olarak kabul et
+        # US hisse için DOLAR TUTARI girişi (varsayılan), BIST için ADET girişi
         second_param = parse_number(parts[1])
         if second_param is not None and second_param > 0:
-            if kind == "us" and cur == "USD" and second_param >= 100:
-                # Dolar tutarı girişi: qty = (amount - commission) / price
+            if kind == "us" and cur == "USD":
+                # US hisse: 2. parametre = dolar tutarı (örn: 1000 = $1000 değerinde al)
                 from services.portfolio import calculate_qty_from_amount
                 qty = calculate_qty_from_amount(second_param, price, commission)
                 if qty <= 0:
@@ -644,7 +643,7 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
                     f"Komisyon: ${commission:,.2f} | Net: ${second_param - commission:,.2f}"
                 )
             else:
-                # Normal adet girişi
+                # BIST/Kripto: 2. parametre = adet/lot
                 qty = second_param
         else:
             await update.message.reply_text("❌ Adet/tutar pozitif sayı olmalı.")
@@ -666,7 +665,7 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
         await to_thread(portfolio.sell, update.effective_user.id, sym, qty, price, cur, note, commission)
         cash_delta = total_value
     
-    new_balance = await to_thread(add_cash, update.effective_user.id, cash_delta)
+    new_balance = await to_thread(add_cash, update.effective_user.id, cash_delta, cur)
     
     if side == "BUY":
         cost_info = f"{qty:,.4f} adet × {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}"
@@ -680,7 +679,7 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
     await update.message.reply_text(
         f"✅ <b>{verb} kaydedildi</b>\n"
         f"📌 {sym}: {cost_info}\n"
-        f"[PARA] Nakit: {fmt_money(new_balance, 'TRY')}"
+        f"[PARA] Nakit ({cur}): {fmt_money(new_balance, cur)}"
     )
 
 
