@@ -490,6 +490,8 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    
     lines = ["💼 <b>Portföy Özeti</b>\n"]
     stop_pct = config.STOP_LOSS_PCT
     for p in pf["positions"]:
@@ -502,16 +504,20 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             realized = f" | Gerçekleşen: {p.realized_pnl:+,.2f}"
         stop_price = p.avg_cost * (1 - stop_pct / 100) if p.avg_cost else 0.0
         stop_flag = " ⚠️ STOP!" if stop_price and p.current_price <= stop_price else ""
+        
+        # TRY equivalent
+        val_try = p.market_value * (usd_try if p.currency == "USD" else 1.0)
         lines.append(
             f"• <b>{p.symbol}</b> — {p.qty:,.4f} adet\n"
             f"  Maliyet: {fmt_money(p.avg_cost, p.currency)} | Anlık: {fmt_money(p.current_price, p.currency)}\n"
-            f"  Değer: <b>{fmt_money(p.market_value, p.currency)}</b> | K/Z: {pnl}{realized}\n"
+            f"  Değer: <b>{fmt_money(p.market_value, p.currency)}</b> ≈ ₺ {val_try:,.2f} | K/Z: {pnl}{realized}\n"
             f"  🛑 Stop-loss: {fmt_money(stop_price, p.currency)} (-%{stop_pct:.0f}){stop_flag}"
         )
 
     lines.append("")
     for cur, total in pf["total_by_currency"].items():
-        lines.append(f"[GRAFIK] {cur} toplam: <b>{fmt_money(total, cur)}</b>")
+        val_try = total * (usd_try if cur == "USD" else 1.0)
+        lines.append(f"[GRAFIK] {cur} toplam: <b>{fmt_money(total, cur)}</b> ≈ ₺ {val_try:,.2f}")
 
     grand, base = await to_thread(_grand_total, pf["total_by_currency"])
     lines.append(f"\n[PARA] Genel toplam: <b>{fmt_money(grand, base)}</b>")
@@ -633,18 +639,39 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
         if second_param is not None and second_param > 0:
             if kind == "us" and cur == "USD":
                 # US hisse: 2. parametre = dolar tutarı (örn: 1000 = $1000 değerinde al)
-                from services.portfolio import calculate_qty_from_amount
+                from services.portfolio import calculate_qty_from_amount, estimate_commission
+                if commission == 0.0:
+                    commission = estimate_commission(second_param)
                 qty = calculate_qty_from_amount(second_param, price, commission)
                 if qty <= 0:
                     await update.message.reply_text("❌ Komisyon tutarından büyük olmalı.")
                     return
+                
+                # Komisyon analizi
+                commission_pct = (commission / second_param * 100) if second_param > 0 else 0
+                net_amount = second_param - commission
+                worth_it = commission_pct < 1.0  # komisyon %1'den az ise değer
+                
                 await update.message.reply_text(
                     f"💡 <b>Dolar tutarı modu</b>: ${second_param:,.2f} / ${price:,.2f} = {qty:.4f} lot\n"
-                    f"Komisyon: ${commission:,.2f} | Net: ${second_param - commission:,.2f}"
+                    f"Komisyon: ${commission:,.2f} (%{commission_pct:.2f}) | Net: ${net_amount:,.2f}\n"
+                    f"{'✅ Komisyon uygun, değer.' if worth_it else '⚠️ Komisyon yüksek, düşünün.'}"
                 )
             else:
                 # BIST/Kripto: 2. parametre = adet/lot
+                from services.portfolio import estimate_commission
                 qty = second_param
+                total_value = qty * price
+                if commission == 0.0:
+                    commission = estimate_commission(total_value, rate=0.001, min_commission=5.0)  # BIST min ~5 TL
+                commission_pct = (commission / total_value * 100) if total_value > 0 else 0
+                worth_it = commission_pct < 1.0
+                
+                await update.message.reply_text(
+                    f"💡 <b>Adet modu</b>: {qty:,.0f} adet × {fmt_money(price, cur)} = {fmt_money(total_value, cur)}\n"
+                    f"Komisyon: {fmt_money(commission, cur)} (%{commission_pct:.2f}) | Net: {fmt_money(total_value - commission, cur)}\n"
+                    f"{'✅ Komisyon uygun.' if worth_it else '⚠️ Komisyon yüksek.'}"
+                )
         else:
             await update.message.reply_text("❌ Adet/tutar pozitif sayı olmalı.")
             return
@@ -988,17 +1015,43 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         lines.append("📋 Planın yok. 2 dakikada oluştur: <code>/basla</code>")
 
-    # Nakit ve portfoy her zaman gosterilir
-    cash = await to_thread(get_cash, user.id)
-    lines.append(f"[PARA] Eldeki nakit: <b>{cash:,.2f} ₺</b>")
-
+    # Nakit ve portföy her zaman gösterilir
+    cash_by_cur = await to_thread(get_all_cash, user.id)
     pf = await to_thread(portfolio.get_portfolio, user.id)
+    
+    # USD -> TRY çevirimi
+    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    cash_try = cash_by_cur.get("TRY", 0.0)
+    cash_usd = cash_by_cur.get("USD", 0.0)
+    cash_total_try = cash_try + cash_usd * usd_try
+    
+    if cash_by_cur:
+        cash_lines = ["[PARA] <b>Eldeki nakit:</b>"]
+        if cash_try:
+            cash_lines.append(f"  ₺ {cash_try:,.2f} TRY")
+        if cash_usd:
+            cash_lines.append(f"  $ {cash_usd:,.2f} USD ≈ ₺ {cash_usd * usd_try:,.2f} TRY")
+        cash_lines.append(f"  <b>Toplam: ₺ {cash_total_try:,.2f} TRY</b>")
+        lines.extend(cash_lines)
+    else:
+        lines.append("[PARA] Eldeki nakit: <b>0 ₺</b>")
+
     if pf["positions"]:
-        invested = sum(p.market_value for p in pf["positions"])
-        lines.append(f"[ARTIS] Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)")
-        lines.append(f"🏦 Toplam servet: <b>{cash + invested:,.2f} ₺</b>")
+        invested_try = 0.0
+        for cur, total in pf["total_by_currency"].items():
+            if cur == "TRY":
+                invested_try += total
+            elif cur == "USD":
+                invested_try += total * usd_try
+            else:
+                invested_try += total  # fallback
+        
+        lines.append(f"[ARTIS] Yatırımlar: <b>₺ {invested_try:,.2f} TRY</b> ({len(pf['positions'])} pozisyon)")
+        total_wealth = cash_total_try + invested_try
+        lines.append(f"🏦 <b>Toplam servet: ₺ {total_wealth:,.2f} TRY</b>")
     else:
         lines.append("💼 Portföyün boş. Alım yapınca /ekle ile kaydet.")
+    
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
 
