@@ -620,17 +620,33 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
         await update.message.reply_text("❌ Fiyat pozitif sayı olmalı.")
         return
     
-    # Komisyon (opsiyonel 4. parametre)
+    # Komisyon (opsiyonel 4. parametre) + onay kontrolü
     commission = 0.0
     note = ""
+    force_confirm = False
     if len(parts) >= 4:
-        # Son parametre not mu komisyon mu?
-        last = parse_number(parts[-1])
-        if last is not None and last >= 0:
-            commission = last
-            note = " ".join(parts[3:-1]) if len(parts) > 4 else ""
+        # Son parametre "onay" mu komisyon mu?
+        last = parts[-1].lower()
+        if last in ("onay", "evet", "yes", "confirm"):
+            force_confirm = True
+            # "onay" varsa bir önceki parametreyi komisyon olarak dene
+            if len(parts) >= 5:
+                prev = parse_number(parts[-2])
+                if prev is not None and prev >= 0:
+                    commission = prev
+                    note = " ".join(parts[3:-2]) if len(parts) > 5 else ""
+                else:
+                    note = " ".join(parts[3:-1])
+            else:
+                note = " ".join(parts[3:-1])
         else:
-            note = " ".join(parts[3:])
+            # Normal sayı kontrolü
+            last_num = parse_number(parts[-1])
+            if last_num is not None and last_num >= 0:
+                commission = last_num
+                note = " ".join(parts[3:-1]) if len(parts) > 4 else ""
+            else:
+                note = " ".join(parts[3:])
     
     verb = "ALIŞ" if side == "BUY" else "SATIŞ"
     
@@ -651,7 +667,29 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
                 # Komisyon analizi
                 commission_pct = (commission / second_param * 100) if second_param > 0 else 0
                 net_amount = second_param - commission
-                worth_it = commission_pct < 1.0  # komisyon %1'den az ise değer
+                worth_it = commission_pct < 1.0
+                
+                # KORUMA: Çok küçük işlem engelle ( komisyon > %2 veya işlem < $10 )
+                if second_param < 10.0 and not force_confirm:
+                    await update.message.reply_text(
+                        f"🛑 <b>İşlem engellendi: Çok küçük tutar</b>\n\n"
+                        f"Girdiğin tutar: ${second_param:,.2f}\n"
+                        f"Tahmini komisyon: ${commission:,.2f} (%{commission_pct:.1f})\n\n"
+                        f"Minimum <b>$10</b> işlem tutarı gerekir (komisyon etkiyi minimize etmek için).\n"
+                        f"Daha büyük tutar gir: <code>/ekle {sym} 50 {price}</code>\n"
+                        f"Veya zorlamak için: <code>/ekle {sym} {second_param} {price} {commission} onay</code>"
+                    )
+                    return
+                
+                # KORUMA: Komisyon %2'den fazla ise onay iste
+                if commission_pct >= 2.0 and not force_confirm:
+                    await update.message.reply_text(
+                        f"⚠️ <b>Yüksek komisyon uyarısı!</b>\n\n"
+                        f"İşlem: ${second_param:,.2f} → Komisyon: ${commission:,.2f} (%{commission_pct:.1f})\n\n"
+                        f"Komisyon işlemin <b>%2'den fazla</b>. Bu değer kaybına yol açar.\n"
+                        f"Yine de devam etmek için: <code>/ekle {sym} {second_param} {price} {commission} onay</code>"
+                    )
+                    return
                 
                 await update.message.reply_text(
                     f"💡 <b>Dolar tutarı modu</b>: ${second_param:,.2f} / ${price:,.2f} = {qty:.4f} lot\n"
@@ -667,6 +705,29 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
                     commission = estimate_commission(total_value, rate=0.001, min_commission=5.0)  # BIST min ~5 TL
                 commission_pct = (commission / total_value * 100) if total_value > 0 else 0
                 worth_it = commission_pct < 1.0
+                
+                # KORUMA: Çok küçük işlem engelle
+                min_value = 100.0 if cur == "TRY" else 10.0  # TRY 100 veya $10
+                if total_value < min_value and not force_confirm:
+                    await update.message.reply_text(
+                        f"🛑 <b>İşlem engellendi: Çok küçük tutar</b>\n\n"
+                        f"İşlem değeri: {fmt_money(total_value, cur)}\n"
+                        f"Tahmini komisyon: {fmt_money(commission, cur)} (%{commission_pct:.1f})\n\n"
+                        f"Minimum <b>{fmt_money(min_value, cur)}</b> işlem değeri gerekir.\n"
+                        f"Daha fazla adet gir: <code>/ekle {sym} {int(qty * min_value / total_value) + 1} {price}</code>\n"
+                        f"Veya zorlamak için: <code>/ekle {sym} {qty} {price} {commission} onay</code>"
+                    )
+                    return
+                
+                # KORUMA: Komisyon %2'den fazla
+                if commission_pct >= 2.0 and not force_confirm:
+                    await update.message.reply_text(
+                        f"⚠️ <b>Yüksek komisyon uyarısı!</b>\n\n"
+                        f"İşlem: {fmt_money(total_value, cur)} → Komisyon: {fmt_money(commission, cur)} (%{commission_pct:.1f})\n\n"
+                        f"Komisyon işlemin <b>%2'den fazla</b>. Değer kaybı riski.\n"
+                        f"Yine de devam: <code>/ekle {sym} {qty} {price} {commission} onay</code>"
+                    )
+                    return
                 
                 await update.message.reply_text(
                     f"💡 <b>Adet modu</b>: {qty:,.0f} adet × {fmt_money(price, cur)} = {fmt_money(total_value, cur)}\n"
