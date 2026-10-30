@@ -46,6 +46,7 @@ from database import (
     has_pending_expense,
     register_user,
     remove_watch,
+    reset_user_data,
     set_cash,
     set_pending_expense,
     set_user_plan,
@@ -516,6 +517,60 @@ async def cmd_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append(f"\n[PARA] Genel toplam: <b>{fmt_money(grand, base)}</b>")
     lines.append(DISCLAIMER)
     await update.message.reply_text("\n".join(lines))
+
+
+@restricted
+async def cmd_sifirla(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Portfoy/takip/alarm verilerini sıfırla (onaylı)."""
+    user = update.effective_user
+    
+    # Argüman kontrol: /sifirla onay -> doğrudan sil, /sifirla -> onay sor
+    args = context.args
+    if args and args[0].lower() in ("onay", "evet", "yes", "confirm"):
+        counts = await to_thread(reset_user_data, user.id, keep_budget=True, keep_cash=True)
+        lines = [
+            "🗑️ <b>Veriler sıfırlandı</b>",
+            "",
+            f"👤 Kullanıcı: <code>{user.id}</code>",
+            "",
+            "<b>Silinen kayıtlar:</b>",
+        ]
+        for table, count in counts.items():
+            if count > 0:
+                lines.append(f"  • {table}: <b>{count}</b> satır")
+        
+        lines.append("")
+        lines.append("✅ Portföy, takip listesi, alarmlar ve işlem geçmişi temizlendi.")
+        lines.append("💰 Bütçe (maaş/yatırım hedefi) ve nakit bakiyesi <b>korundu</b>.")
+        lines.append("")
+        lines.append("Yeni başlangıç için: <code>/ekle THYAO.IS 100 45</code>")
+        
+        await update.message.reply_text("\n".join(lines))
+        return
+    
+    # Onay sor
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ EVET, SIFIRLA", callback_data="sifirla:confirm"),
+        InlineKeyboardButton("❌ İPTAL", callback_data="sifirla:cancel"),
+    ]])
+    
+    await update.message.reply_text(
+        "⚠️ <b>DİKKAT: Bu işlem geri alınamaz!</b>\n\n"
+        "Aşağıdaki veriler <b>kalıcı olarak silinecek</b>:\n"
+        "  • İşlem geçmişi (transactions)\n"
+        "  • Takip listesi (watchlist)\n"
+        "  • Fiyat alarmları (alerts, alert_config)\n"
+        "  • Portföy anlık görüntüleri\n"
+        "  • Vergi/temettü olayları\n"
+        "  • Notlar\n\n"
+        "<b>KORUNACAK:</b>\n"
+        "  • Bütçe (maaş / yatırım hedefi)\n"
+        "  • Nakit bakiyesi\n"
+        "  • Kullanıcı planı (asistan ayarları)\n\n"
+        "Devam etmek için butona basın:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
 
 
 def _grand_total(total_by_currency: dict):
@@ -2268,6 +2323,37 @@ async def push_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(f"🔕 Bildirimler {duration} sessiz moda alındı.")
 
 
+@restricted
+async def sifirla_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1] if ":" in q.data else ""
+    user = q.from_user
+    
+    if action == "confirm":
+        counts = await to_thread(reset_user_data, user.id, keep_budget=True, keep_cash=True)
+        lines = [
+            "🗑️ <b>Veriler sıfırlandı</b>",
+            "",
+            f"👤 Kullanıcı: <code>{user.id}</code>",
+            "",
+            "<b>Silinen kayıtlar:</b>",
+        ]
+        for table, count in counts.items():
+            if count > 0:
+                lines.append(f"  • {table}: <b>{count}</b> satır")
+        
+        lines.append("")
+        lines.append("✅ Portföy, takip listesi, alarmlar ve işlem geçmişi temizlendi.")
+        lines.append("💰 Bütçe (maaş/yatırım hedefi) ve nakit bakiyesi <b>korundu</b>.")
+        lines.append("")
+        lines.append("Yeni başlangıç için: <code>/ekle THYAO.IS 100 45</code>")
+        
+        await q.edit_message_text("\n".join(lines), parse_mode="HTML")
+    elif action == "cancel":
+        await q.edit_message_text("❌ Sıfırlama iptal edildi. Verileriniz korundu.")
+
+
 # ---------- Kayit ----------
 
 def _arg(context: ContextTypes.DEFAULT_TYPE, idx: int) -> str:
@@ -2297,6 +2383,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("takipler", cmd_watch_list))
     app.add_handler(CommandHandler("silah", cmd_watch_remove))
     app.add_handler(CommandHandler("portfoy", cmd_portfolio))
+    app.add_handler(CommandHandler("sifirla", cmd_sifirla))
     app.add_handler(CommandHandler("ekle", cmd_buy))
     app.add_handler(CommandHandler("sat", cmd_sell))
     app.add_handler(CommandHandler("islemler", cmd_transactions))
@@ -2355,6 +2442,7 @@ def register_handlers(app) -> None:
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(checkin_expense_callback, pattern=r"^checkin:expense:"))
     app.add_handler(CallbackQueryHandler(salary_received_callback, pattern=r"^salary:"))
+    app.add_handler(CallbackQueryHandler(sifirla_callback, pattern=r"^sifirla:"))
     # Menu callback handlers
     app.add_handler(CallbackQueryHandler(menu_cash_callback, pattern=r"^cash:"))
     app.add_handler(CallbackQueryHandler(menu_portfolio_callback, pattern=r"^portfolio:"))

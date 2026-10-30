@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     qty         REAL NOT NULL,
     price       REAL NOT NULL,
     currency    TEXT NOT NULL,
+    commission  REAL DEFAULT 0,
     note        TEXT,
     created_at  TEXT NOT NULL
 );
@@ -396,11 +397,11 @@ def get_all_watchlists() -> list:
 # ---------------- Islemler ----------------
 
 def add_transaction(user_id: int, symbol: str, side: str, qty: float, price: float,
-                    currency: str, note: str = "") -> int:
+                    currency: str, commission: float = 0.0, note: str = "") -> int:
     return execute(
-        "INSERT INTO transactions (user_id, symbol, side, qty, price, currency, note, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, symbol, side, qty, price, currency, note or "", now_iso()),
+        "INSERT INTO transactions (user_id, symbol, side, qty, price, currency, commission, note, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, symbol, side, qty, price, currency, commission, note or "", now_iso()),
     )
 
 
@@ -755,3 +756,45 @@ def set_cash(user_id: int, amount: float) -> float:
         (user_id, amount, now_iso()),
     )
     return get_cash(user_id)
+
+
+def reset_user_data(user_id: int, keep_budget: bool = True, keep_cash: bool = True) -> dict:
+    """Kullanicinin portfoy/watchlist/alarm verilerini temizler.
+    
+    Args:
+        user_id: Kullanici ID
+        keep_budget: True ise butce (maas/yatirim) ve user_plan korunur
+        keep_cash: True ise nakit bakiyesi korunur
+    
+    Returns:
+        Silinen satir sayilari sozlugu
+    """
+    counts = {}
+    
+    # Temizlenecek tablolar (portfoy/takip/alarm odakli)
+    tables_to_clear = [
+        ("transactions", "DELETE FROM transactions WHERE user_id = ?"),
+        ("watchlist", "DELETE FROM watchlist WHERE user_id = ?"),
+        ("alerts", "DELETE FROM alerts WHERE user_id = ?"),
+        ("alert_config", "DELETE FROM alert_config WHERE user_id = ?"),
+        ("portfolio_snapshots", "DELETE FROM portfolio_snapshots WHERE user_id = ?"),
+        ("tax_events", "DELETE FROM tax_events WHERE user_id = ?"),
+        ("dividend_events", "DELETE FROM dividend_events WHERE user_id = ?"),
+        ("notes", "DELETE FROM notes WHERE user_id = ?"),
+        ("pending_expense", "DELETE FROM pending_expense WHERE user_id = ?"),
+        ("backups", "DELETE FROM backups WHERE user_id = ?"),
+    ]
+    
+    for name, sql in tables_to_clear:
+        counts[name] = execute(sql, (user_id,))
+    
+    # Opsiyonel: butce ve nakit
+    if not keep_budget:
+        counts["budgets"] = execute("DELETE FROM budgets WHERE user_id = ?", (user_id,))
+        counts["user_plan"] = execute("DELETE FROM user_plan WHERE user_id = ?", (user_id,))
+        counts["expenses"] = execute("DELETE FROM expenses WHERE user_id = ?", (user_id,))
+    
+    if not keep_cash:
+        counts["cash"] = execute("DELETE FROM cash WHERE user_id = ?", (user_id,))
+    
+    return counts
