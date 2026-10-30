@@ -276,6 +276,8 @@ def init_db() -> None:
             conn.commit()
         finally:
             conn.close()
+        # Run migrations after schema creation
+        migrate_db()
         return
     with _lock:
         conn = _conn()
@@ -284,6 +286,50 @@ def init_db() -> None:
             conn.commit()
         finally:
             conn.close()
+        migrate_db()
+
+
+def migrate_db() -> None:
+    """Add missing columns to existing tables (safe to run multiple times)."""
+    if not _use_pg:
+        return  # SQLite handles migrations differently if needed
+    
+    migrations = [
+        # transactions: add commission column
+        """
+        ALTER TABLE transactions 
+        ADD COLUMN IF NOT EXISTS commission REAL DEFAULT 0
+        """,
+        # alerts: add webhook columns if missing
+        """
+        ALTER TABLE alerts 
+        ADD COLUMN IF NOT EXISTS webhook_url TEXT
+        """,
+        """
+        ALTER TABLE alerts 
+        ADD COLUMN IF NOT EXISTS webhook_type TEXT
+        """,
+        # alert_config: add webhook columns if missing
+        """
+        ALTER TABLE alert_config 
+        ADD COLUMN IF NOT EXISTS webhook_url TEXT
+        """,
+        """
+        ALTER TABLE alert_config 
+        ADD COLUMN IF NOT EXISTS webhook_type TEXT
+        """,
+    ]
+    
+    conn = psycopg.connect(config.DATABASE_URL)
+    try:
+        cur = conn.cursor()
+        for stmt in migrations:
+            stmt = stmt.strip()
+            if stmt:
+                cur.execute(stmt)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def execute(sql: str, params: tuple = ()) -> int:
