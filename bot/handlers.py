@@ -57,10 +57,12 @@ from services import (
     backup,
     benchmark,
     budget,
+    broker,
     calendar as cal_svc,
     charts,
     correlation,
     dividend,
+    evening_analysis,
     fundamentals,
     indicators as ind,
     inline,
@@ -1659,6 +1661,61 @@ async def cmd_webhook_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_broker_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/broker SYMBOL — broker maliyet karşılaştırması.
+    
+    Örnek:
+    /broker THYAO     → BIST için Midast vs Garanti vs İş vs Komisyonsuz
+    /broker AAPL      → ABD için Midast vs IBKR vs Garanti
+    /broker BTC       → Kripto için
+    """
+    arg = _arg(context, 0)
+    if not arg:
+        await update.message.reply_text("Kullanım: <code>/broker SYMBOL</code>\nÖrn: <code>/broker THYAO</code>")
+        return
+    
+    user_id = update.effective_user.id
+    msg = await to_thread(evening_analysis.get_broker_comparison_for_user, user_id, arg)
+    await update.message.reply_text(msg)
+
+
+@restricted
+async def cmd_broker_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/brokerayarla BROKER — varsayılan broker ayarla.
+    
+    Kullanılabilir: midast, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers
+    """
+    arg = _arg(context, 0)
+    if not arg:
+        brokers_list = ", ".join(broker.BROKERS.keys())
+        await update.message.reply_text(
+            f"Kullanım: <code>/brokerayarla BROKER</code>\n\nKullanılabilir:\n{brokers_list}"
+        )
+        return
+    
+    broker_key = arg.lower()
+    if broker_key not in broker.BROKERS:
+        await update.message.reply_text(f"❌ Bilinmeyen broker: {broker_key}")
+        return
+    
+    if await to_thread(broker.set_user_broker, update.effective_user.id, broker_key):
+        await update.message.reply_text(f"✅ Varsayılan broker: <b>{broker.BROKERS[broker_key].name}</b>")
+    else:
+        await update.message.reply_text("❌ Kaydedilemedi.")
+
+
+@restricted
+async def cmd_evening_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/aksam — akşam al/sat analizi raporu.
+    
+    Portföyünü analiz eder, satılacak/alınacak önerir, broker maliyetlerini hesaplar.
+    """
+    user_id = update.effective_user.id
+    msg = await to_thread(evening_analysis.generate_evening_report, user_id)
+    await update.message.reply_text(msg)
+
+
+@restricted
 async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/performans — performans atfi ve atfi."""
     user = update.effective_user
@@ -2168,6 +2225,10 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("alarmwebhooklar", cmd_webhook_list))
     app.add_handler(CommandHandler("alarmwebhooksil", cmd_webhook_remove))
     app.add_handler(CommandHandler("alarmwebhooktest", cmd_webhook_test))
+    # Broker & Akşam analizi
+    app.add_handler(CommandHandler("broker", cmd_broker_compare))
+    app.add_handler(CommandHandler("brokerayarla", cmd_broker_set))
+    app.add_handler(CommandHandler("aksam", cmd_evening_analysis))
     app.add_handler(CommandHandler("performans", cmd_performance))
     app.add_handler(CommandHandler("vergiraporu", cmd_tax_report))
     app.add_handler(CommandHandler("csv", cmd_csv_export))
