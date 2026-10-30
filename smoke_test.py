@@ -131,17 +131,28 @@ def main():
         "aksam rapor": ("evening", None, None),
         "broker karşılaştır THYAO": ("broker", "THYAO.IS", None),
         "hangi broker ucuz AAPL": ("broker", "AAPL", None),
-        "broker ayarla midast": ("broker_set", None, "midast"),
+        "broker ayarla midas": ("broker_set", None, "midas"),
         "varsayılan broker garanti": ("broker_set", None, "garanti"),
         "saatler THYAO": ("hours", "THYAO.IS", None),
         "hangi saatte almalıyım": ("hours", None, None),
+        # Buy/Sell NLP
+        "ekle AAPL 1000 150": ("buy", "AAPL", None),
+        "ekle AAPL 1000 150 1.5": ("buy", "AAPL", None),
+        "ekle THYAO 100 250": ("buy", "THYAO.IS", None),
+        "sat AAPL 5 170": ("sell", "AAPL", None),
+        "sat THYAO 50 300 2": ("sell", "THYAO.IS", None),
+        "al BTC 500 30000": ("buy", "BTC-USD", None),
     }
     for text, (want_action, want_sym, want_broker) in cases.items():
         p = nlp.parse(text)
         ok_action = p["action"] == want_action
         ok_sym = (p.get("symbol") == want_sym) if want_sym else (p.get("symbol") in (None, want_sym))
         ok_broker = (p.get("broker") == want_broker) if want_broker else True
-        check(f"nlp: {text}", ok_action and ok_sym and ok_broker, f"-> {p}")
+        # buy/sell için amount/price kontrol
+        ok_extra = True
+        if want_action in ("buy", "sell"):
+            ok_extra = p.get("amount") is not None and p.get("price") is not None
+        check(f"nlp: {text}", ok_action and ok_sym and ok_broker and ok_extra, f"-> {p}")
 
     print("== Ani hareket alarmi ==")
     from database import add_watch as db_add_watch

@@ -41,6 +41,8 @@ _STRONG = {
     "broker": ["broker karşılaştır", "broker karsilastir", "hangi broker", "komisyon karşılaştır", "komisyon karsilastir", "ucuz broker", "en ucuz broker"],
     "broker_set": ["broker ayarla", "varsayılan broker", "varsayilan broker", "broker sec", "broker seç"],
     "hours": ["saatler", "hangi saatte", "ne zaman almalı", "ne zaman satmalı", "işlem saati", "islem saati", "piyasa açık mı", "piyasa acik mi", "en iyi saat"],
+    "buy": ["ekle", "al", "satın al", "satınal", "alırım", "alim", "yap", "koy", "gir", "buy"],
+    "sell": ["sat", "satış", "satis", "çık", "cik", "çıkar", "cikar", "kapat", "vur", "sell"],
 }
 
 # Sembol aramasinda atlanacak yaygin kelimeler
@@ -48,6 +50,7 @@ _STOP = {
     "BUGUN", "BU", "AY", "MAAS", "MAAŞ", "PLAN", "PLANIM", "NE", "NASIL", "NEDİR",
     "KADAR", "YIL", "GUN", "GÜN", "HAFTA", "HISSE", "HİSSE", "ALINIR", "ALINMALI",
     "YATIRIM", "PARAM", "PORTFOY", "PORTFÖY", "SINYAL", "SİNYAL", "DURUM", "FIRSAT",
+    "AL", "SAT", "EKLE", "SIL", "ALIM", "SATIM", "ALIŞ", "SATIŞ", "ALIS", "SATIS",
 }
 
 _SYMBOL_RE = re.compile(r"\b([A-ZÇĞİÖŞÜ0-9]{2,8})\b")
@@ -71,14 +74,14 @@ def _find_symbol(text_upper: str) -> str | None:
 
 
 def parse(text: str) -> dict:
-    """Metni cozumler. {'action': ..., 'symbol': ..., 'broker': ...} dondurur."""
+    """Metni cozumler. {'action': ..., 'symbol': ..., 'broker': ..., 'amount': ..., 'price': ..., 'commission': ...} dondurur."""
     low = text.lower()
     upper = text.upper()
 
     # 1) Guclu niyetler
     for action, kws in _STRONG.items():
         if any(kw in low for kw in kws):
-            symbol = _find_symbol(upper) if action in ("signal", "signals", "broker", "hours") else None
+            symbol = _find_symbol(upper) if action in ("signal", "signals", "broker", "hours", "buy", "sell") else None
             
             # broker_set için broker adını çıkar
             broker_name = None
@@ -88,9 +91,34 @@ def parse(text: str) -> dict:
                         broker_name = b
                         break
             
+            # buy/sell için miktar, fiyat, komisyon çıkar
+            amount = None
+            price = None
+            commission = None
+            if action in ("buy", "sell") and symbol:
+                # Sayıları bul: tutar, fiyat, komisyon
+                numbers = re.findall(r'\b\d+[.,]?\d*\b', text)
+                nums = [float(n.replace(',', '.')) for n in numbers]
+                
+                if len(nums) >= 2:
+                    # İlk iki sayı: tutar/miktar ve fiyat
+                    # Sembol US hisse mi kontrol et
+                    kind = md.kind_of(symbol) if symbol else ""
+                    if kind == "us" and nums[0] >= 100:
+                        # Dolar tutarı modu: ilk sayı = toplam tutar ($), ikinci = fiyat
+                        amount = nums[0]
+                    else:
+                        # Normal: ilk sayı = adet/lot, ikinci = fiyat
+                        amount = nums[0]
+                    price = nums[1]
+                    
+                    # 3. sayı varsa komisyon
+                    if len(nums) >= 3:
+                        commission = nums[2]
+            
             if symbol and action == "signals":
                 return {"action": "signal", "symbol": symbol}
-            return {"action": action, "symbol": symbol, "broker": broker_name}
+            return {"action": action, "symbol": symbol, "broker": broker_name, "amount": amount, "price": price, "commission": commission}
 
     # 2) Sembol varsa fiyat sorusu
     symbol = _find_symbol(upper)

@@ -238,7 +238,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<code>broker karşılaştır THYAO</code> → /broker THYAO\n"
         "<code>broker ayarla midas</code> → /brokerayarla midas\n"
         "<code>saatler THYAO</code> → /saatler THYAO\n"
-        "<code>hangi saatte almalıyım</code> → /saatler\n\n"
+        "<code>hangi saatte almalıyım</code> → /saatler\n"
+        "<code>ekle AAPL 1000 150</code> → /ekle AAPL 1000 150 (1000$ değerinde al)\n"
+        "<code>ekle AAPL 1000 150 1.5</code> → komisyonlu alım\n"
+        "<code>ekle THYAO 100 250</code> → /ekle THYAO 100 250 (adet modu)\n"
+        "<code>sat AAPL 5 170</code> → /sat AAPL 5 170\n\n"
         "⚠️ <i>Sinyaller yatirim tavsiyesi degildir.</i>"
     )
     await update.message.reply_text(text)
@@ -1095,6 +1099,74 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
         else:
             await update.message.reply_text("📋 Planın yok. 2 dakikada oluşturalım: <code>/basla</code>")
         return True
+    
+    # Buy/Sell (otonom: miktar, fiyat, komisyon otomatik çıkarılır)
+    if action in ("buy", "sell") and symbol:
+        amount = parsed.get("amount")
+        price = parsed.get("price")
+        commission = parsed.get("commission") or 0.0
+        
+        if amount is None or price is None:
+            await update.message.reply_text(
+                f"❌ <b>{'Alım' if action == 'buy' else 'Satım'}</b> için miktar ve fiyat belirt.\n"
+                f"Örn: <code>ekle AAPL 1000 150 1.5</code> (1000$ değerinde @ 150$, 1.5$ komisyon)"
+            )
+            return True
+        
+        resolved = await to_thread(md.resolve_symbol, symbol)
+        if not resolved:
+            await update.message.reply_text(f"❌ <b>{symbol}</b> bulunamadı.")
+            return True
+        sym, kind, cur = resolved
+        
+        if action == "buy":
+            # US hisse ve dolar tutarı modu
+            if kind == "us" and cur == "USD" and amount >= 100:
+                from services.portfolio import calculate_qty_from_amount
+                qty = calculate_qty_from_amount(amount, price, commission)
+                if qty <= 0:
+                    await update.message.reply_text("❌ Komisyon tutarından büyük olmalı.")
+                    return True
+                await update.message.reply_text(
+                    f"💡 <b>Dolar tutarı modu</b>: ${amount:,.2f} / ${price:,.2f} = {qty:.4f} lot\n"
+                    f"Komisyon: ${commission:,.2f} | Net: ${amount - commission:,.2f}"
+                )
+            else:
+                qty = amount
+            
+            if qty <= 0:
+                await update.message.reply_text("❌ Hesaplanan miktar sıfır veya negatif.")
+                return True
+            
+            total_cost = qty * price + commission
+            await to_thread(portfolio.buy, update.effective_user.id, sym, qty, price, cur, "", commission)
+            new_balance = await to_thread(add_cash, update.effective_user.id, -total_cost)
+            
+            await update.message.reply_text(
+                f"✅ <b>ALIŞ kaydedildi</b>\n"
+                f"📌 {sym}: {qty:.4f} lot @ {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}\n"
+                f"Komisyon: {fmt_money(commission, cur)}\n"
+                f"[PARA] Nakit: {fmt_money(new_balance, 'TRY')}"
+            )
+        
+        else:  # sell
+            qty = amount
+            if qty <= 0:
+                await update.message.reply_text("❌ Miktar pozitif olmalı.")
+                return True
+            
+            total_value = qty * price - commission
+            await to_thread(portfolio.sell, update.effective_user.id, sym, qty, price, cur, "", commission)
+            new_balance = await to_thread(add_cash, update.effective_user.id, total_value)
+            
+            await update.message.reply_text(
+                f"✅ <b>SATIŞ kaydedildi</b>\n"
+                f"📌 {sym}: {qty:.4f} lot @ {fmt_money(price, cur)} = {fmt_money(qty * price, cur)}\n"
+                f"Komisyon: {fmt_money(commission, cur)}\n"
+                f"[PARA] Nakit: {fmt_money(new_balance, 'TRY')}"
+            )
+        return True
+    
     if action == "evening":
         await cmd_evening_analysis(update, None)
         return True
