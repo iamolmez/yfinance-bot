@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from typing import Optional
 
-from services.market_data import TZ_ISTANBUL, kind_of, md
+from services import market_data as md
+from services.common import TZ_ISTANBUL, kind_of
 
 
 @dataclass
