@@ -32,6 +32,7 @@ from database import (
     deactivate_alert_config,
     delete_alert,
     delete_note,
+    get_all_cash,
     get_alert_configs,
     get_alerts,
     get_backups,
