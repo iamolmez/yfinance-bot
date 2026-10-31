@@ -146,6 +146,7 @@ def get_buy_candidates(analysis: dict) -> list[EveningAction]:
                     qty_suggestion=suggested_qty,
                     price_target=price,
                     stop_loss=sig.get("stop", 0),
+                    # broker_cost is in TRY from broker; store both TRY and USD
                     broker_cost=cost_info["commission"] * suggested_qty,
                 ))
                 available_cash -= suggested_qty * per_lot_cost
@@ -176,10 +177,14 @@ def generate_evening_report(user_id: int) -> str:
     if sells:
         lines.append("🔴 <b>Satış Önerileri:</b>")
         for a in sells:
-            # Komisyon para birimi belirle
             kind = md.kind_of(a.symbol)
-            cur = "$" if kind == "us" else "₺"
-            comm_val = a.broker_cost if kind == "us" else a.broker_cost
+            fx_rate = md.get_fx_rate("TRY=X") or 32.0
+            if kind == "us":
+                cur = "$"
+                comm_val = a.broker_cost / fx_rate  # TRY -> USD
+            else:
+                cur = "₺"
+                comm_val = a.broker_cost
             lines.append(
                 f"  • <b>{a.symbol}</b> — {a.action}\n"
                 f"    Miktar: {a.qty_suggestion:.4f} @ ~{a.price_target:.2f}\n"
@@ -196,8 +201,13 @@ def generate_evening_report(user_id: int) -> str:
         lines.append("🟢 <b>Alım Fırsatları:</b>")
         for a in buys[:5]:  # En fazla 5
             kind = md.kind_of(a.symbol)
-            cur = "$" if kind == "us" else "₺"
-            comm_val = a.broker_cost if kind == "us" else a.broker_cost
+            fx_rate = md.get_fx_rate("TRY=X") or 32.0
+            if kind == "us":
+                cur = "$"
+                comm_val = a.broker_cost / fx_rate  # TRY -> USD
+            else:
+                cur = "₺"
+                comm_val = a.broker_cost
             lines.append(
                 f"  • <b>{a.symbol}</b> — {a.action}\n"
                 f"    Önerilen: {a.qty_suggestion:.4f} lot @ ~{a.price_target:.2f}\n"

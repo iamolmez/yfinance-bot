@@ -636,8 +636,12 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
             if kind == "us" and cur == "USD":
                 # US hisse: 2. parametre = dolar tutarı (örn: 1000 = $1000 değerinde al)
                 from services.portfolio import calculate_qty_from_amount, estimate_commission_for_symbol
+                from services import market_data as md
                 if commission == 0.0:
-                    comm_info = estimate_commission_for_symbol(sym, second_param)
+                    # estimate_commission_for_symbol expects TRY amount, convert USD to TRY
+                    usd_try = md.get_fx_rate("TRY=X") or 32.0
+                    amount_try = second_param * usd_try
+                    comm_info = estimate_commission_for_symbol(sym, amount_try)
                     commission = comm_info["commission_usd"]
                     commission_pct = comm_info["commission_pct"]
                 else:

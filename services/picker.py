@@ -143,6 +143,7 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
     return {
         "price": price,
         "commission": commission,
+        "commission_usd": comm_info.get("commission_usd", 0.0),
         "qty": qty,
         "net_amount": net_amount,
         "commission_pct": commission_pct,
@@ -278,10 +279,11 @@ def pick_message(result: dict) -> str:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
             comm_txt = ""
             if x["commission"] > 0:
-                # US hisseler için $ cinsinden göster
+                # US hisseler için $ cinsinden göster (commission_usd kullan)
                 cur = x.get('currency', '₺')
                 if cur == "USD":
-                    comm_txt = f"\n   💸 Komisyon: ~${x['commission']:,.2f} (%{x['commission_pct']:.1f})"
+                    comm_val = x.get('commission_usd', x['commission'])
+                    comm_txt = f"\n   💸 Komisyon: ~${comm_val:,.2f} (%{x['commission_pct']:.1f})"
                 else:
                     comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} ₺ (%{x['commission_pct']:.1f})"
                 if x["commission_pct"] >= 2.0:
@@ -302,7 +304,8 @@ def pick_message(result: dict) -> str:
             if x["commission"] > 0:
                 cur = x.get('currency', '₺')
                 if cur == "USD":
-                    comm_txt = f"\n   💸 Komisyon: ~${x['commission']:,.2f} (%{x['commission_pct']:.1f})"
+                    comm_val = x.get('commission_usd', x['commission'])
+                    comm_txt = f"\n   💸 Komisyon: ~${comm_val:,.2f} (%{x['commission_pct']:.1f})"
                 else:
                     comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} ₺ (%{x['commission_pct']:.1f})"
                 if x["commission_pct"] >= 2.0:
