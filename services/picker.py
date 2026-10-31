@@ -12,6 +12,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from services import market_data as md, signals
+from services.portfolio import estimate_commission, calculate_qty_from_amount
 
 # Her zaman taranacak aday havuzlari
 SAFE_POOL = [
@@ -106,12 +107,46 @@ def _amounts(scores: list[dict], budget: float) -> dict[str, float]:
     }
 
 
+def _get_symbol_info(sym: str, amount: float) -> dict:
+    """Sembol için komisyon ve lot hesapla."""
+    kind = md.kind_of(sym)
+    try:
+        quote = md.get_quote(sym)
+        price = quote["price"] if quote else 0.0
+    except Exception:
+        price = 0.0
+    
+    cur = "USD" if kind == "us" else ("TRY" if kind == "bist" else "USD")
+    
+    if amount <= 0 or price <= 0:
+        return {"price": price, "commission": 0.0, "qty": 0.0, "net_amount": 0.0, "commission_pct": 0.0}
+    
+    # Komisyon tahmini
+    if cur == "USD":
+        commission = estimate_commission(amount, rate=0.001, min_commission=1.0)
+    else:
+        commission = estimate_commission(amount, rate=0.001, min_commission=5.0)
+    
+    net_amount = amount - commission
+    qty = calculate_qty_from_amount(amount, price, commission)
+    commission_pct = (commission / amount * 100) if amount > 0 else 0.0
+    
+    return {
+        "price": price,
+        "commission": commission,
+        "qty": qty,
+        "net_amount": net_amount,
+        "commission_pct": commission_pct,
+        "currency": cur,
+    }
+
+
 def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
     """Plan + portfoye gore otomatik alim/satim onerileri uretir.
 
     Donus:
       {"invest_share", "safe_pct", "risky_pct",
-       "safe": [ {symbol, score, signal, amount, reason, held} ],
+       "safe": [ {symbol, score, signal, amount, net_amount, commission, commission_pct, qty, price, reason, held} ],
        "risky": [ ... ],
        "sells": [ {symbol, score, signal, amount} ]}
     """
@@ -145,20 +180,37 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
     safe_amts = _amounts(safe_scores, safe_budget)
     risky_amts = _amounts(risky_scores, risky_budget)
 
-    safe = [
-        {"symbol": s["symbol"], "score": s["score"], "signal": s["signal"],
-         "amount": safe_amts.get(s["symbol"], 0.0),
-         "reason": _SIMPLE.get(s["signal"], ""),
-         "held": held.get(s["symbol"], 0.0)}
-        for s in safe_scores
-    ]
-    risky = [
-        {"symbol": s["symbol"], "score": s["score"], "signal": s["signal"],
-         "amount": risky_amts.get(s["symbol"], 0.0),
-         "reason": _SIMPLE.get(s["signal"], ""),
-         "held": held.get(s["symbol"], 0.0)}
-        for s in risky_scores
-    ]
+    safe = []
+    for s in safe_scores:
+        amount = safe_amts.get(s["symbol"], 0.0)
+        info = _get_symbol_info(s["symbol"], amount)
+        safe.append({
+            "symbol": s["symbol"], "score": s["score"], "signal": s["signal"],
+            "amount": amount,
+            "net_amount": info["net_amount"],
+            "commission": info["commission"],
+            "commission_pct": info["commission_pct"],
+            "qty": info["qty"],
+            "price": info["price"],
+            "reason": _SIMPLE.get(s["signal"], ""),
+            "held": held.get(s["symbol"], 0.0),
+        })
+
+    risky = []
+    for s in risky_scores:
+        amount = risky_amts.get(s["symbol"], 0.0)
+        info = _get_symbol_info(s["symbol"], amount)
+        risky.append({
+            "symbol": s["symbol"], "score": s["score"], "signal": s["signal"],
+            "amount": amount,
+            "net_amount": info["net_amount"],
+            "commission": info["commission"],
+            "commission_pct": info["commission_pct"],
+            "qty": info["qty"],
+            "price": info["price"],
+            "reason": _SIMPLE.get(s["signal"], ""),
+            "held": held.get(s["symbol"], 0.0),
+        })
 
     # Portfoydeki sat sinyalleri
     sells = []
@@ -171,12 +223,18 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
             sells.append({"symbol": sym, "score": sig["score"],
                           "signal": sig["signal"], "amount": mv})
 
-    # Nakde gore olcek: onerilen alimlar eldeki nakdi asmasin
+    # Nakde gore olcek: onerilen alimlar eldeki nakdi asmasin (komisyon dahil)
     total_suggested = sum(x["amount"] for x in safe + risky)
     if total_suggested > cash and total_suggested > 0:
         ratio = cash / total_suggested
         for x in safe + risky:
             x["amount"] = round(x["amount"] * ratio, 2)
+            # Komisyon da yeniden hesapla
+            info = _get_symbol_info(x["symbol"], x["amount"])
+            x["net_amount"] = info["net_amount"]
+            x["commission"] = info["commission"]
+            x["commission_pct"] = info["commission_pct"]
+            x["qty"] = info["qty"]
 
     return {
         "invest_share": invest_share,
@@ -209,9 +267,15 @@ def pick_message(result: dict) -> str:
         lines += ["", f"🛡️ <b>Güvenli öneriler</b> (%{result['safe_pct']}):"]
         for x in result["safe"]:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
+            comm_txt = ""
+            if x["commission"] > 0:
+                comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} {x.get('currency', '₺')} (%{x['commission_pct']:.1f})"
+                if x["commission_pct"] >= 2.0:
+                    comm_txt += " ⚠️ Yüksek!"
+            qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Önerilen: <b>{x['amount']:,.0f} ₺</b> — {x['reason']}{held_txt}"
+                f"  💰 Bütçe: <b>{x['amount']:,.0f}</b> → Net: <b>{x['net_amount']:,.0f}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "🛡️ Güvenli tarafta bugün fırsat yok. Nakitte beklemek de bir karardır."]
@@ -220,9 +284,15 @@ def pick_message(result: dict) -> str:
         lines += ["", f"⚡ <b>Riskli öneriler</b> (%{result['risky_pct']}):"]
         for x in result["risky"]:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
+            comm_txt = ""
+            if x["commission"] > 0:
+                comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} {x.get('currency', '₺')} (%{x['commission_pct']:.1f})"
+                if x["commission_pct"] >= 2.0:
+                    comm_txt += " ⚠️ Yüksek!"
+            qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Önerilen: <b>{x['amount']:,.0f} ₺</b> — {x['reason']}{held_txt}"
+                f"  💰 Bütçe: <b>{x['amount']:,.0f}</b> → Net: <b>{x['net_amount']:,.0f}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "⚡ Riskli tarafta bugün fırsat yok, zorlama."]
