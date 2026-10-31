@@ -107,8 +107,8 @@ def _amounts(scores: list[dict], budget: float) -> dict[str, float]:
     }
 
 
-def _get_symbol_info(sym: str, amount: float) -> dict:
-    """Sembol için komisyon ve lot hesapla."""
+def _get_symbol_info(sym: str, amount_try: float) -> dict:
+    """Sembol için komisyon ve lot hesapla (amount_try = TRY cinsinden bütçe)."""
     kind = md.kind_of(sym)
     try:
         quote = md.get_quote(sym)
@@ -118,18 +118,27 @@ def _get_symbol_info(sym: str, amount: float) -> dict:
     
     cur = "USD" if kind == "us" else ("TRY" if kind == "bist" else "USD")
     
-    if amount <= 0 or price <= 0:
-        return {"price": price, "commission": 0.0, "qty": 0.0, "net_amount": 0.0, "commission_pct": 0.0}
+    if amount_try <= 0:
+        return {"price": price, "commission": 0.0, "qty": 0.0, "net_amount": 0.0, "commission_pct": 0.0, "currency": cur}
     
-    # Komisyon tahmini
+    # USD/TRY kuru
+    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    
+    # Komisyon tahmini - para birimine göre
     if cur == "USD":
-        commission = estimate_commission(amount, rate=0.001, min_commission=1.0)
+        # TRY bütçesini USD'ye çevir, komisyon USD'de hesapla
+        amount_usd = amount_try / usd_try
+        commission_usd = estimate_commission(amount_usd, rate=0.001, min_commission=1.0)
+        commission = commission_usd * usd_try  # TRY'ye çevir
+        net_amount = amount_try - commission
+        qty = calculate_qty_from_amount(amount_usd, price / usd_try, commission_usd)
     else:
-        commission = estimate_commission(amount, rate=0.001, min_commission=5.0)
+        # BIST: doğrudan TRY'de hesapla
+        commission = estimate_commission(amount_try, rate=0.001, min_commission=5.0)
+        net_amount = amount_try - commission
+        qty = calculate_qty_from_amount(amount_try, price, commission)
     
-    net_amount = amount - commission
-    qty = calculate_qty_from_amount(amount, price, commission)
-    commission_pct = (commission / amount * 100) if amount > 0 else 0.0
+    commission_pct = (commission / amount_try * 100) if amount_try > 0 else 0.0
     
     return {
         "price": price,
@@ -137,6 +146,7 @@ def _get_symbol_info(sym: str, amount: float) -> dict:
         "qty": qty,
         "net_amount": net_amount,
         "commission_pct": commission_pct,
+        "currency": cur,
         "currency": cur,
     }
 
