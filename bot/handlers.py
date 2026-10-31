@@ -55,20 +55,16 @@ from database import (
 from services import (
     advanced_alerts,
     assistant,
-    backtest,
     backup,
-    benchmark,
     budget,
     broker,
     calendar as cal_svc,
     charts,
-    correlation,
     dividend,
     evening_analysis,
     fundamentals,
     indicators as ind,
     inline,
-    macro,
     market_data as md,
     menu,
     nlp,
@@ -76,7 +72,6 @@ from services import (
     picker,
     portfolio,
     risk,
-    risk_metrics,
     signals,
     tax,
     trading_hours,
@@ -174,41 +169,30 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>🔔 Takip & Sinyal</b>\n"
         "/takip SYMBOL — takip listesine ekle\n"
         "/takipler — takip listen\n"
-        "/silah SYMBOL — listeden cikar\n"
         "/sinyal — tum listeni tara, sinyalleri goster\n"
-        "/alarm SYMBOL FIYAT [ust|alt] [webhook_tip webhook_url] — fiyat alarmı + webhook\n"
-        "/alarmlar — alarmlarin\n"
-        "/alarmsil ID — alarmı sil\n\n"
-        "<b>🤖 Otomatik & Gelismis</b>\n"
-        "/oner — Bot kendisi hisse secer (guvenli + riskli karisim)\n"
-        "/alarm2 SYMBOL TUR PARAM [webhook_tip webhook_url] — gelismis alarm (RSI/MACD/BB/Hacim/Fiyat)\n"
-        "/alarm2lar — aktif gelismis alarmlar\n"
-        "/alarm2sil ID — gelismis alarm sil\n\n"
+        "/alarm SYMBOL FIYAT [ust|alt] — fiyat alarmı\n"
+        "/alarmlar — alarmlarin\n\n"
+        "<b>🤖 Otomatik</b>\n"
+        "/oner — Bot kendisi hisse secer (guvenli + riskli karisim, komisyon dahil)\n\n"
         "<b>💼 Portfoy (Komisyon Destekli)</b>\n"
         "/ekle SYMBOL ADET FIYAT [KOMISYON] — alim kaydet (komisyon opsiyonel)\n"
         "/ekle SYMBOL TUTAR FIYAT [KOMISYON] — <b>US hisse: dolar tutarı gir, lotu bot hesaplar</b>\n"
         "/sat SYMBOL ADET FIYAT [KOMISYON] — satis kaydet\n"
         "/portfoy — portfoy ozeti ve kar/zarar (komisyon dahil)\n"
         "/islemler — islem gecmisi\n"
-        "/karsilastir SYM1 SYM2 — iki hisse karsilastirma\n\n"
+        "/karsilastir SYM1 SYM2 — iki hisse karsilastirma\n"
+        "/sifirla onay — portfoy/takip/alarm tamamen sifirla\n\n"
         "<b>📈 Analiz & Risk</b>\n"
         "/analiz SYMBOL — detayli teknik analiz\n"
-        "/temel SYMBOL — temel analiz (F/K, P/B, ROE, marj, buyume)\n"
-        "/backtest SYMBOL [PERIYOT] — strateji gecmise testi\n"
-        "/riskmetrik [GUN] — Sharpe, Sortino, Calmar, Max DD, VaR\n"
-        "/montecarlo [YIL] [SIM] — Monte Carlo simulasyonu\n"
-        "/risk — portfoy risk analizi (korelasyon, HHI, DD)\n"
-        "/korelasyon [PERIYOT] — korelasyon matrisi + cesitlendirme\n\n"
+        "/risk — portfoy risk analizi (korelasyon, HHI, DD)\n\n"
         "<b>💰 Maaş & Butce</b>\n"
         "/maas TUTAR — aylik maasini tanimla\n"
         "/yatirim TUTAR — aylik yatirim hedefi\n"
         "/harcama TUTAR KATEGORI — gider ekle\n"
-        "/butce — butce durumu\n"
-        "/rapor — aylik rapor\n\n"
-        "<b>💰 Nakit & Temettü</b>\n"
-        "/nakit [TUTAR] — eldeki nakit goster/ayarla\n"
-        "/maasgunu GUN — maas gununu ayarla (orn: 8)\n"
-        "/temettutakip [YIL] — temettu ozeti + DRIP onerileri\n\n"
+        "/butce — butce durumu + aylik rapor\n\n"
+        "<b>💰 Nakit (Çok Para Birimli)</b>\n"
+        "/nakit [TUTAR] [TRY|USD] — eldeki nakit goster/ayarla (TRY/USD ayrı)\n"
+        "/maasgunu GUN — maas gununu ayarla (orn: 8)\n\n"
         "<b>📊 Performans & Takvim & Saatler</b>\n"
         "/performans — performans atfi (hangi karar ne kazandirdi)\n"
         "/takvim [GUN] — kurumsal takvim (temettu, ceyrek, bolunme)\n"
@@ -218,20 +202,15 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/brokerayarla BROKER — varsayılan broker ayarla (midas, isyatirim, garanti, vakif, deniz, komisyonsuz_bist, interactive_brokers)\n"
         "/aksam — <b>akşam al/sat analizi</b> (portföy + sinyaller + broker maliyeti + stop-loss)\n\n"
         "<b>🔔 Webhook Alarmları (7 Platform)</b>\n"
-        "/alarmwebhook TIP URL [KAPSAM] — webhook ekle (discord, slack, ntfy, telegram, json, pushover, email)\n"
-        "/alarmwebhooklar — kaydedilmiş webhooklar\n"
-        "/alarmwebhooksil TIP — webhook sil\n"
-        "/alarmwebhooktest TIP — test gönder\n\n"
+        "/webhook add|list|remove|test TIP URL [ALARM_TIP] — webhook yönetimi\n"
+        "TIP: discord, slack, ntfy, telegram, json, pushover, email\n"
+        "ALARM_TIP: all, price, advanced, bigmove (varsayılan: all)\n\n"
         "<b>💾 Yedek & Veri</b>\n"
-        "/yedek — GitHub Gist'e sifreli tam yedek\n"
-        "/yedekal GIST_ID — yedekten restore\n"
-        "/csv [islemler|portfoy|temettu] [YIL] — CSV export\n"
-        "/vergiraporu [YIL] — GVKY raporu (satis kazanci, temettu vergisi)\n\n"
+        "/yedek — GitHub Gist'e sifreli tam yedek\n\n"
         "<b>📝 Notlar & Diger</b>\n"
         "/not SYMBOL NOT — pozisyona not ekle\n"
         "/notlar [SYMBOL] — notlari gor\n"
-        "/haber SYMBOL — son haber basliklari\n"
-        "/makro — doviz, emtia, endeksler paneli\n\n"
+        "/haber SYMBOL — son haber basliklari\n\n"
         "<b>⚙️ Kurulum</b>\n"
         "/basla — 3 soruluk kurulum (maas, gun, risk)\n"
         "/menu — Ana menu (butonlarla tum islemler)\n\n"
@@ -1502,55 +1481,6 @@ async def cmd_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
-async def cmd_fundamental(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                          sym_arg: str | None = None):
-    """/temel SYMBOL — sirketin finansal sagligi (degerleme, borc, buyume)."""
-    arg = sym_arg or _arg(context, 0)
-    if not arg:
-        await update.message.reply_text("Kullanım: <code>/temel THYAO</code>")
-        return
-    resolved = await to_thread(md.resolve_symbol, arg)
-    if not resolved:
-        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
-        return
-    sym = resolved[0]
-    await update.message.reply_text(f"🔍 {sym} finansalları çekiliyor...")
-    f = await to_thread(fundamentals.get_fundamentals, sym)
-    if not f:
-        await update.message.reply_text("❌ Temel veri alınamadı (küçük/özel şirketlerde olabilir).")
-        return
-    text = fundamentals.fundamentals_text(f)
-    await update.message.reply_text(
-        f"[GRAFIK] <b>{sym}</b> — {f['name']}\n\n{text}\n" + DISCLAIMER
-    )
-
-
-@restricted
-async def cmd_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                       sym_arg: str | None = None):
-    """/backtest SYMBOL [PERIYOT] — strateji gecmiste kazandirir miydi?"""
-    arg = sym_arg or _arg(context, 0)
-    period = _arg(context, 1) or "2y"
-    if not arg:
-        await update.message.reply_text(
-            "Kullanım: <code>/backtest THYAO</code> (periyot: 1y, 2y, 5y)\n"
-            "Bu test, sinyal kuralının son dönemde al-sat yapmasa da seni kazandırıp kazandırmayacağını ölçer."
-        )
-        return
-    if period not in ("1y", "2y", "5y", "10y"):
-        await update.message.reply_text("❌ Periyot: 1y, 2y, 5y, 10y kullan.")
-        return
-    resolved = await to_thread(md.resolve_symbol, arg)
-    if not resolved:
-        await update.message.reply_text(f"❌ <b>{arg}</b> bulunamadı.")
-        return
-    sym = resolved[0]
-    await update.message.reply_text(f"🧪 {sym} geçmiş test ediliyor ({period})...")
-    result = await to_thread(backtest.backtest, sym, period)
-    await update.message.reply_text(backtest.backtest_text(result))
-
-
-@restricted
 async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/risk — portfoy risk analizi."""
     user = update.effective_user
@@ -1558,13 +1488,6 @@ async def cmd_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cash = await to_thread(get_cash, user.id)
     r = await to_thread(risk.analyze, pf["positions"], cash)
     await update.message.reply_text(risk.risk_text(r))
-
-
-@restricted
-async def cmd_macro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/makro — doviz, emtia ve endeks paneli."""
-    msg = await to_thread(macro.dashboard)
-    await update.message.reply_text(msg)
 
 
 @restricted
@@ -1775,192 +1698,131 @@ async def cmd_advanced_alert(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 @restricted
-async def cmd_advanced_alerts_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarm2lar — aktif gelişmiş alarmlar."""
-    user = update.effective_user
-    configs = get_alert_configs(user.id)
-    if not configs:
-        await update.message.reply_text("🔔 Aktif gelişmiş alarm yok.")
-        return
-    lines = ["🔔 <b>Aktif Gelişmiş Alarmlar</b>\n"]
-    for c in configs:
-        params = json.loads(c["params"]) if c["params"] else {}
-        lines.append(
-            f"• ID {c['id']}: {c['symbol']} {c['type']} {params} "
-            f"({'✅' if c['active'] else '❌'})"
-        )
-    await update.message.reply_text("\n".join(lines))
-
-
-@restricted
-async def cmd_advanced_alert_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarm2sil ID — gelişmiş alarm sil."""
-    arg = _arg(context, 0)
-    if not arg or not arg.isdigit():
-        await update.message.reply_text("Kullanım: <code>/alarm2sil ID</code>")
-        return
-    if deactivate_alert_config(int(arg), update.effective_user.id):
-        await update.message.reply_text(f"🗑️ Alarm <b>#{arg}</b> silindi.")
-    else:
-        await update.message.reply_text(f"❌ Alarm <b>#{arg}</b> bulunamadı.")
-
-
-@restricted
-async def cmd_webhook_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarmwebhook TIP URL [ALARM_TIP] — webhook ekle (discord, slack, ntfy, pushover, telegram, json, email).
+async def cmd_webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/webhook add|list|remove|test TIP URL [ALARM_TIP] — webhook yönetimi.
+    
+    TIP: discord, slack, ntfy, telegram, json, pushover, email
+    ALARM_TIP: all (tümü), price (fiyat), advanced (gelişmiş), bigmove (ani hareket)
     
     Örnekler:
-    /alarmwebhook discord https://discord.com/api/webhooks/... 
-    /alarmwebhook slack https://hooks.slack.com/services/...
-    /alarmwebhook ntfy https://ntfy.sh/my-topic
-    /alarmwebhook telegram tg://BOT_TOKEN/CHAT_ID
-    /alarmwebhook json https://my-api.com/webhook
-    /alarmwebhook pushover pushover://user=xxx&token=yyy
-    /alarmwebhook email email://to@example.com?api_key=xxx
-    
-    ALARM_TIP: all (tümü), price (fiyat), advanced (gelişmiş), bigmove (ani hareket)
+    /webhook add discord https://discord.com/api/webhooks/...
+    /webhook list
+    /webhook remove discord
+    /webhook test discord
     """
     args = context.args
-    if len(args) < 2:
+    if not args:
         await update.message.reply_text(
-            "Kullanım: <code>/alarmwebhook TIP URL [ALARM_TIP]</code>\n\n"
+            "Kullanım: <code>/webhook add|list|remove|test TIP URL [ALARM_TIP]</code>\n\n"
             "TIP: discord, slack, ntfy, telegram, json, pushover, email\n"
             "ALARM_TIP: all, price, advanced, bigmove (varsayılan: all)\n\n"
             "Örnekler:\n"
-            "<code>/alarmwebhook discord https://discord.com/api/webhooks/xxx</code>\n"
-            "<code>/alarmwebhook slack https://hooks.slack.com/services/xxx</code>\n"
-            "<code>/alarmwebhook ntfy https://ntfy.sh/my-topic</code>\n"
-            "<code>/alarmwebhook telegram tg://BOT_TOKEN/CHAT_ID</code>\n"
-            "<code>/alarmwebhook json https://api.mysite.com/webhook</code>"
+            "<code>/webhook add discord https://discord.com/api/webhooks/xxx</code>\n"
+            "<code>/webhook list</code>\n"
+            "<code>/webhook remove discord</code>\n"
+            "<code>/webhook test discord</code>"
         )
         return
 
-    webhook_type = args[0].lower()
-    webhook_url = args[1]
-    alarm_scope = args[2].lower() if len(args) > 2 else "all"
-
+    action = args[0].lower()
     valid_types = {"discord", "slack", "ntfy", "telegram", "json", "pushover", "email"}
-    if webhook_type not in valid_types:
-        await update.message.reply_text(f"❌ Geçersiz tip. Kullanılabilir: {', '.join(valid_types)}")
-        return
-
     valid_scopes = {"all", "price", "advanced", "bigmove"}
-    if alarm_scope not in valid_scopes:
-        await update.message.reply_text(f"❌ Geçersiz alarm kapsamı. Kullanılabilir: {', '.join(valid_scopes)}")
-        return
 
-    # Webhook'ı kaydet - basit versiyon: kullanıcıya özel bir config tutuyoruz
-    # Gerçek implementasyonda ayrı bir tablo olmalı
     from database import execute, query
-    user_id = update.effective_user.id
-
-    # Mevcut webhookları getir
-    existing = query(
-        "SELECT webhook_url, webhook_type, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
-        (user_id, webhook_type)
-    )
-
-    if existing:
-        # Güncelle
-        execute(
-            "UPDATE user_webhooks SET webhook_url = ?, alarm_scope = ?, updated_at = ? WHERE user_id = ? AND webhook_type = ?",
-            (webhook_url, alarm_scope, now_iso(), user_id, webhook_type)
-        )
-        await update.message.reply_text(f"✅ {webhook_type} webhook güncellendi (kapsam: {alarm_scope})")
-    else:
-        # Yeni ekle
-        execute(
-            "INSERT INTO user_webhooks (user_id, webhook_type, webhook_url, alarm_scope, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, webhook_type, webhook_url, alarm_scope, now_iso(), now_iso())
-        )
-        await update.message.reply_text(f"✅ {webhook_type} webhook eklendi (kapsam: {alarm_scope})")
-
-
-@restricted
-async def cmd_webhook_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarmwebhooklar — aktif webhookları listele."""
-    from database import query
-    user_id = update.effective_user.id
-
-    webhooks_list = query(
-        "SELECT webhook_type, webhook_url, alarm_scope, created_at FROM user_webhooks WHERE user_id = ? ORDER BY created_at",
-        (user_id,)
-    )
-
-    if not webhooks_list:
-        await update.message.reply_text("🔕 Kaydedilmiş webhook yok. <code>/alarmwebhook TIP URL</code> ile ekle.")
-        return
-
-    lines = ["🔔 <b>Kaydedilmiş Webhook'lar</b>\n"]
-    for w in webhooks_list:
-        url_preview = w["webhook_url"][:50] + "..." if len(w["webhook_url"]) > 50 else w["webhook_url"]
-        lines.append(f"• <b>{w['webhook_type']}</b>: {url_preview} (kapsam: {w['alarm_scope']})")
-
-    await update.message.reply_text("\n".join(lines))
-
-
-@restricted
-async def cmd_webhook_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarmwebhooksil TIP — webhook sil."""
-    arg = _arg(context, 0)
-    if not arg:
-        await update.message.reply_text("Kullanım: <code>/alarmwebhooksil TIP</code> (tip: discord, slack, ntfy, vb.)")
-        return
-
-    from database import execute
-    user_id = update.effective_user.id
-
-    cur = execute(
-        "DELETE FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
-        (user_id, arg.lower())
-    )
-
-    if cur > 0:
-        await update.message.reply_text(f"🗑️ {arg} webhook silindi.")
-    else:
-        await update.message.reply_text(f"❌ {arg} webhook bulunamadı.")
-
-
-@restricted
-async def cmd_webhook_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/alarmwebhooktest TIP — webhook test et."""
-    arg = _arg(context, 0)
-    if not arg:
-        await update.message.reply_text("Kullanım: <code>/alarmwebhooktest TIP</code>")
-        return
-
-    from database import query
     from services.webhooks import send_webhook, WebhookPayload
-
     user_id = update.effective_user.id
-    webhook_type = arg.lower()
 
-    w = query(
-        "SELECT webhook_url, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
-        (user_id, webhook_type)
-    )
+    if action == "add":
+        if len(args) < 3:
+            await update.message.reply_text("Kullanım: <code>/webhook add TIP URL [ALARM_TIP]</code>")
+            return
+        webhook_type = args[1].lower()
+        webhook_url = args[2]
+        alarm_scope = args[3].lower() if len(args) > 3 else "all"
+        
+        if webhook_type not in valid_types:
+            await update.message.reply_text(f"❌ Geçersiz tip. Kullanılabilir: {', '.join(valid_types)}")
+            return
+        if alarm_scope not in valid_scopes:
+            await update.message.reply_text(f"❌ Geçersiz alarm kapsamı. Kullanılabilir: {', '.join(valid_scopes)}")
+            return
 
-    if not w:
-        await update.message.reply_text(f"❌ {webhook_type} webhook bulunamadı. Önce <code>/alarmwebhook {webhook_type} URL</code> ile ekle.")
-        return
+        existing = query(
+            "SELECT webhook_url, webhook_type, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+            (user_id, webhook_type)
+        )
 
-    webhook_url = w[0]["webhook_url"]
-    payload = WebhookPayload(
-        title="🧪 Test Bildirimi",
-        message="Bu bir test mesajıdır. Webhook çalışıyor! ✅",
-        symbol="TEST",
-        price=100.0,
-        change_pct=5.0,
-        alert_type="test",
-    )
+        if existing:
+            execute(
+                "UPDATE user_webhooks SET webhook_url = ?, alarm_scope = ?, updated_at = ? WHERE user_id = ? AND webhook_type = ?",
+                (webhook_url, alarm_scope, now_iso(), user_id, webhook_type)
+            )
+            await update.message.reply_text(f"✅ {webhook_type} webhook güncellendi (kapsam: {alarm_scope})")
+        else:
+            execute(
+                "INSERT INTO user_webhooks (user_id, webhook_type, webhook_url, alarm_scope, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, webhook_type, webhook_url, alarm_scope, now_iso(), now_iso())
+            )
+            await update.message.reply_text(f"✅ {webhook_type} webhook eklendi (kapsam: {alarm_scope})")
 
-    success = send_webhook(webhook_url, webhook_type, payload)
+    elif action == "list":
+        webhooks_list = query(
+            "SELECT webhook_type, webhook_url, alarm_scope, created_at FROM user_webhooks WHERE user_id = ? ORDER BY created_at",
+            (user_id,)
+        )
+        if not webhooks_list:
+            await update.message.reply_text("🔕 Kaydedilmiş webhook yok. <code>/webhook add TIP URL</code> ile ekle.")
+            return
+        lines = ["🔔 <b>Kaydedilmiş Webhook'lar</b>\n"]
+        for w in webhooks_list:
+            url_preview = w["webhook_url"][:50] + "..." if len(w["webhook_url"]) > 50 else w["webhook_url"]
+            lines.append(f"• <b>{w['webhook_type']}</b>: {url_preview} (kapsam: {w['alarm_scope']})")
+        await update.message.reply_text("\n".join(lines))
 
-    if success:
-        await update.message.reply_text(f"✅ {webhook_type} test bildirimi gönderildi!")
+    elif action == "remove":
+        if len(args) < 2:
+            await update.message.reply_text("Kullanım: <code>/webhook remove TIP</code>")
+            return
+        webhook_type = args[1].lower()
+        cur = execute(
+            "DELETE FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+            (user_id, webhook_type)
+        )
+        if cur > 0:
+            await update.message.reply_text(f"🗑️ {webhook_type} webhook silindi.")
+        else:
+            await update.message.reply_text(f"❌ {webhook_type} webhook bulunamadı.")
+
+    elif action == "test":
+        if len(args) < 2:
+            await update.message.reply_text("Kullanım: <code>/webhook test TIP</code>")
+            return
+        webhook_type = args[1].lower()
+        w = query(
+            "SELECT webhook_url, alarm_scope FROM user_webhooks WHERE user_id = ? AND webhook_type = ?",
+            (user_id, webhook_type)
+        )
+        if not w:
+            await update.message.reply_text(f"❌ {webhook_type} webhook bulunamadı. Önce <code>/webhook add {webhook_type} URL</code> ile ekle.")
+            return
+        webhook_url = w[0]["webhook_url"]
+        payload = WebhookPayload(
+            title="🧪 Test Bildirimi",
+            message="Bu bir test mesajıdır. Webhook çalışıyor! ✅",
+            symbol="TEST",
+            price=100.0,
+            change_pct=5.0,
+            alert_type="test",
+        )
+        success = send_webhook(webhook_url, webhook_type, payload)
+        if success:
+            await update.message.reply_text(f"✅ {webhook_type} test bildirimi gönderildi!")
+        else:
+            await update.message.reply_text(f"❌ {webhook_type} test bildirimi gönderilemedi. URL/token kontrol edin.")
+
     else:
-        await update.message.reply_text(f"❌ {webhook_type} test bildirimi gönderilemedi. URL/token kontrol edin.")
+        await update.message.reply_text("❌ Geçersiz işlem. Kullan: add, list, remove, test")
 
 
 @restricted
@@ -2057,117 +1919,12 @@ async def cmd_tax_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
-async def cmd_csv_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/csv [islemler|portfoy|temettu] [YIL] — CSV export."""
-    user = update.effective_user
-    args = context.args
-    export_type = args[0] if args else "islemler"
-    year = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
-
-    if export_type == "islemler":
-        csv_data = tax.export_csv_transactions(user.id, year)
-        filename = f"islemler_{year or 'all'}.csv"
-    elif export_type == "portfoy":
-        csv_data = tax.export_csv_portfolio(user.id)
-        filename = "portfoy.csv"
-    elif export_type == "temettu":
-        csv_data = tax.export_csv_dividends(user.id, year)
-        filename = f"temettu_{year or 'all'}.csv"
-    else:
-        await update.message.reply_text("Kullanım: <code>/csv islemler|portfoy|temettu [YIL]</code>")
-        return
-
-    await update.message.reply_document(
-        document=io.BytesIO(csv_data.encode()),
-        filename=filename,
-        caption=f"📄 {filename}"
-    )
-
-
-@restricted
-async def cmd_benchmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/benchmark [ENDİKS] [GUN] — portföy vs endeks karşılaştırması."""
-    user = update.effective_user
-    args = context.args
-    benchmark = args[0] if args else "XU100.IS"
-    days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 365
-
-    result = benchmark.compare_to_benchmark(user.id, benchmark, days)
-    await update.message.reply_text(benchmark.benchmark_text(result))
-
-
-@restricted
-async def cmd_risk_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/riskmetrik [GUN] — Sharpe, Sortino, Calmar, Max DD, VaR."""
-    user = update.effective_user
-    arg = _arg(context, 0)
-    days = int(arg) if arg and arg.isdigit() else 365
-
-    metrics = risk_metrics.calculate_metrics(user.id, days)
-    await update.message.reply_text(risk_metrics.metrics_text(metrics))
-
-
-@restricted
-async def cmd_monte_carlo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/montecarlo [YIL] [SIMULASYON] — Monte Carlo simülasyonu."""
-    user = update.effective_user
-    args = context.args
-    years = int(args[0]) if args and args[0].isdigit() else 10
-    n_sim = int(args[1]) if len(args) > 1 and args[1].isdigit() else 200
-
-    await update.message.reply_text(f"[ZAR] Simülasyon çalışıyor ({years} yıl, {n_sim} senaryo)...")
-    result = risk_metrics.monte_carlo_simulation(user.id, years, n_sim)
-    await update.message.reply_text(risk_metrics.monte_carlo_text(result))
-
-
-@restricted
-async def cmd_dividend_track(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/temettutakip [YIL] — temettü özeti + DRIP önerileri."""
-    user = update.effective_user
-    arg = _arg(context, 0)
-    year = int(arg) if arg and arg.isdigit() else date.today().year
-
-    summary = dividend.get_dividend_summary(user.id, year)
-    suggestions = dividend.drip_suggestions(user.id)
-
-    lines = [dividend.dividend_text(summary)]
-    if suggestions:
-        lines.append("\n🔄 <b>DRIP Önerileri:</b>")
-        for s in suggestions:
-            lines.append(f"• {s['symbol']}: {s['amount']:,.2f} ₺ ({s['date']}) — {s['note']}")
-    await update.message.reply_text("\n".join(lines))
-
-
-@restricted
-async def cmd_correlation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/korelasyon [PERIYOT] — korelasyon matrisi ve çeşitlendirme."""
-    user = update.effective_user
-    arg = _arg(context, 0)
-    period = arg if arg else "1y"
-
-    corr = correlation.calculate_correlation_matrix(user.id, period)
-    div = correlation.diversification_metrics(user.id)
-    await update.message.reply_text(correlation.correlation_text(corr, div))
-
-
-@restricted
 async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/yedek — GitHub Gist'e tam yedek al."""
     user = update.effective_user
     await update.message.reply_text("💾 Yedek oluşturuluyor...")
     result = backup.create_backup(user.id)
     await update.message.reply_text(backup.backup_text(result))
-
-
-@restricted
-async def cmd_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/yedekal GIST_ID — Gist'ten yedek indir."""
-    arg = _arg(context, 0)
-    if not arg:
-        await update.message.reply_text("Kullanım: <code>/yedekal GIST_ID</code>")
-        return
-    result = backup.restore_backup(update.effective_user.id, arg)
-    await update.message.reply_text(f"⚠️ {result.get('error', 'Bilinmeyen hata')}")
 
 
 @restricted
@@ -2376,23 +2133,10 @@ async def menu_analysis_callback(update: Update, context: ContextTypes.DEFAULT_T
     q = update.callback_query
     await q.answer()
     action = q.data.split(":")[1] if ":" in q.data else ""
-    if action == "benchmark":
-        await q.edit_message_text("[GRAFIK] Benchmark karşılaştırması için: <code>/benchmark XU100.IS 365</code>")
-        return
-    if action == "risk":
-        await q.edit_message_text("[GRAFIK] Risk metrikleri için: <code>/riskmetrik 365</code>")
-        return
-    if action == "montecarlo":
-        await q.edit_message_text("[ZAR] Monte Carlo için: <code>/montecarlo 10 500</code>")
-        return
-    if action == "correlation":
-        await q.edit_message_text("[GRAFIK] Korelasyon için: <code>/korelasyon 1y</code>")
-        return
     await q.edit_message_text("[GRAFIK] <b>Analiz Menusu</b>", reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("[GRAFIK] Benchmark", callback_data="analysis:benchmark"),
-         InlineKeyboardButton("[DUSUS] Risk Metrikleri", callback_data="analysis:risk")],
-        [InlineKeyboardButton("[ZAR] Monte Carlo", callback_data="analysis:montecarlo"),
-         InlineKeyboardButton("🔗 Korelasyon", callback_data="analysis:correlation")],
+        [InlineKeyboardButton("[GRAFIK] Portföy Analizi", callback_data="menu:portfolio")],
+        [InlineKeyboardButton("[DUSUS] Risk Analizi", callback_data="menu:risk")],
+        [InlineKeyboardButton("💡 Sinyal Tara", callback_data="analysis:signals")],
         [InlineKeyboardButton("[GERI] Ana Menü", callback_data="menu:main")],
     ]))
 
@@ -2482,14 +2226,12 @@ def register_handlers(app) -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("yardim", cmd_help))
     app.add_handler(CommandHandler("hisse", cmd_quote))
     app.add_handler(CommandHandler("analiz", cmd_analysis))
     app.add_handler(CommandHandler("grafik", cmd_chart))
     app.add_handler(CommandHandler("sinyal", cmd_signal))
     app.add_handler(CommandHandler("takip", cmd_watch_add))
     app.add_handler(CommandHandler("takipler", cmd_watch_list))
-    app.add_handler(CommandHandler("silah", cmd_watch_remove))
     app.add_handler(CommandHandler("portfoy", cmd_portfolio))
     app.add_handler(CommandHandler("sifirla", cmd_sifirla))
     app.add_handler(CommandHandler("ekle", cmd_buy))
@@ -2499,23 +2241,17 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("yatirim", cmd_invest))
     app.add_handler(CommandHandler("harcama", cmd_expense))
     app.add_handler(CommandHandler("butce", cmd_budget))
-    app.add_handler(CommandHandler("rapor", cmd_report))
     app.add_handler(CommandHandler("alarm", cmd_alert))
     app.add_handler(CommandHandler("alarmlar", cmd_alerts))
-    app.add_handler(CommandHandler("alarmsil", cmd_alert_remove))
     app.add_handler(CommandHandler("dolar", cmd_fx))
     app.add_handler(CommandHandler("asistan", cmd_assistant))
     app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("durum", cmd_status))
-    app.add_handler(CommandHandler("durumum", cmd_status))
     app.add_handler(CommandHandler("nakit", cmd_cash))
     app.add_handler(CommandHandler("maasgunu", cmd_salary_day))
     app.add_handler(CommandHandler("dengele", cmd_rebalance))
     app.add_handler(CommandHandler("oner", cmd_pick))
-    app.add_handler(CommandHandler("temel", cmd_fundamental))
-    app.add_handler(CommandHandler("backtest", cmd_backtest))
     app.add_handler(CommandHandler("risk", cmd_risk))
-    app.add_handler(CommandHandler("makro", cmd_macro))
     app.add_handler(CommandHandler("haber", cmd_news))
     # Yeni komutlar
     app.add_handler(CommandHandler("not", cmd_note))
@@ -2523,28 +2259,14 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("karsilastir", cmd_compare))
     app.add_handler(CommandHandler("takvim", cmd_calendar))
     app.add_handler(CommandHandler("saatler", cmd_trading_hours))
-    app.add_handler(CommandHandler("alarm2", cmd_advanced_alert))
-    app.add_handler(CommandHandler("alarm2lar", cmd_advanced_alerts_list))
-    app.add_handler(CommandHandler("alarm2sil", cmd_advanced_alert_remove))
-    # Webhook komutları
-    app.add_handler(CommandHandler("alarmwebhook", cmd_webhook_add))
-    app.add_handler(CommandHandler("alarmwebhooklar", cmd_webhook_list))
-    app.add_handler(CommandHandler("alarmwebhooksil", cmd_webhook_remove))
-    app.add_handler(CommandHandler("alarmwebhooktest", cmd_webhook_test))
+    # Webhook komutları (tek: /webhook add|list|remove|test)
+    app.add_handler(CommandHandler("webhook", cmd_webhook_add))
     # Broker & Akşam analizi
     app.add_handler(CommandHandler("broker", cmd_broker_compare))
     app.add_handler(CommandHandler("brokerayarla", cmd_broker_set))
     app.add_handler(CommandHandler("aksam", cmd_evening_analysis))
     app.add_handler(CommandHandler("performans", cmd_performance))
-    app.add_handler(CommandHandler("vergiraporu", cmd_tax_report))
-    app.add_handler(CommandHandler("csv", cmd_csv_export))
-    app.add_handler(CommandHandler("benchmark", cmd_benchmark))
-    app.add_handler(CommandHandler("riskmetrik", cmd_risk_metrics))
-    app.add_handler(CommandHandler("montecarlo", cmd_monte_carlo))
-    app.add_handler(CommandHandler("temettutakip", cmd_dividend_track))
-    app.add_handler(CommandHandler("korelasyon", cmd_correlation))
     app.add_handler(CommandHandler("yedek", cmd_backup))
-    app.add_handler(CommandHandler("yedekal", cmd_restore))
 
     # Buton geri cagirmalari
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
