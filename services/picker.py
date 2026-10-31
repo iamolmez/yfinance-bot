@@ -278,8 +278,7 @@ def pick_message(result: dict) -> str:
         # Para birimini belirle: currency alanından veya sembol kind'ından
         cur = x.get('currency', '')
         if not cur:
-            # Fallback: sembol kind'ından belirle
-            from services import market_data as md
+            # Fallback: sembol kind'ından belirle (module-level md kullan)
             cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
         
         if cur == "USD":
@@ -301,7 +300,6 @@ def pick_message(result: dict) -> str:
                 # Para birimini belirle: currency alanından veya sembol kind'ından
                 cur = x.get('currency', '')
                 if not cur:
-                    from services import market_data as md
                     cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
                 if cur == "USD":
                     comm_val = x.get('commission_usd', x['commission'])
@@ -329,7 +327,6 @@ def pick_message(result: dict) -> str:
                 # Para birimini belirle: currency alanından veya sembol kind'ından
                 cur = x.get('currency', '')
                 if not cur:
-                    from services import market_data as md
                     cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
                 if cur == "USD":
                     comm_val = x.get('commission_usd', x['commission'])
