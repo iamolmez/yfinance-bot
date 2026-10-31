@@ -243,8 +243,10 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
             "net_amount": info["net_amount"],
             "commission": info["commission"],
             "commission_pct": info["commission_pct"],
+            "commission_usd": info.get("commission_usd", 0.0),
             "qty": info["qty"],
             "price": info["price"],
+            "currency": info["currency"],
             "reason": _SIMPLE.get(s["signal"], ""),
             "held": held.get(s["symbol"], 0.0),
         })
@@ -259,8 +261,10 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
             "net_amount": info["net_amount"],
             "commission": info["commission"],
             "commission_pct": info["commission_pct"],
+            "commission_usd": info.get("commission_usd", 0.0),
             "qty": info["qty"],
             "price": info["price"],
+            "currency": info["currency"],
             "reason": _SIMPLE.get(s["signal"], ""),
             "held": held.get(s["symbol"], 0.0),
         })
