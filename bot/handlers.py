@@ -2266,7 +2266,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("takvim", cmd_calendar))
     app.add_handler(CommandHandler("saatler", cmd_trading_hours))
     # Webhook komutları (tek: /webhook add|list|remove|test)
-    app.add_handler(CommandHandler("webhook", cmd_webhook_add))
+    app.add_handler(CommandHandler("webhook", cmd_webhook))
     # Broker & Akşam analizi
     app.add_handler(CommandHandler("broker", cmd_broker_compare))
     app.add_handler(CommandHandler("brokerayarla", cmd_broker_set))
