@@ -155,9 +155,13 @@ def format_comparison(comparison: list[dict], symbol: str, market: str) -> str:
     if not comparison:
         return "❌ Karşılaştırma yapılamadı."
     
+    from services import market_data as md
+    kind = md.kind_of(symbol)
+    cur = "$" if kind == "us" else "₺"
+    
     lines = [
         f"🏦 <b>Broker Karşılaştırması: {symbol} ({market.upper()})</b>",
-        f"📊 İşlem: {qty:.4f} lot @ {price:.2f} = {comparison[0]['gross_value']:,.2f} ₺",
+        f"📊 İşlem: {qty:.4f} lot @ {price:.2f} = {comparison[0]['gross_value']:,.2f} {cur}",
         "",
     ]
     
@@ -165,9 +169,9 @@ def format_comparison(comparison: list[dict], symbol: str, market: str) -> str:
         medal = "🥇" if c["rank"] == 1 else ("🥈" if c["rank"] == 2 else ("🥉" if c["rank"] == 3 else f"{c['rank']}."))
         lines.append(
             f"{medal} <b>{c['broker']}</b>\n"
-            f"   Komisyon: {c['commission']:,.2f} ₺ (%{c['commission_pct']:.3f})\n"
-            f"   Toplam Maliyet: <b>{c['net_cost']:,.2f} ₺</b>"
-            + (f"\n   Aylık ücret: {c['monthly_fee']:,.0f} ₺" if c.get('monthly_fee', 0) > 0 else "")
+            f"   Komisyon: {c['commission']:,.2f} {cur} (%{c['commission_pct']:.3f})\n"
+            f"   Toplam Maliyet: <b>{c['net_cost']:,.2f} {cur}</b>"
+            + (f"\n   Aylık ücret: {c['monthly_fee']:,.0f} {cur}" if c.get('monthly_fee', 0) > 0 else "")
         )
     
     # En iyi vs en kötü fark
@@ -175,7 +179,7 @@ def format_comparison(comparison: list[dict], symbol: str, market: str) -> str:
     worst = comparison[-1]
     saving = worst["net_cost"] - best["net_cost"]
     lines.append("")
-    lines.append(f"💡 <b>Tasarruf:</b> {best['broker']} ile {worst['broker']} yerine {saving:,.2f} ₺ kazancınız olur.")
+    lines.append(f"💡 <b>Tasarruf:</b> {best['broker']} ile {worst['broker']} yerine {saving:,.2f} {cur} kazancınız olur.")
     
     return "\n".join(lines)
 

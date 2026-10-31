@@ -278,13 +278,18 @@ def pick_message(result: dict) -> str:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
             comm_txt = ""
             if x["commission"] > 0:
-                comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} {x.get('currency', '₺')} (%{x['commission_pct']:.1f})"
+                # US hisseler için $ cinsinden göster
+                cur = x.get('currency', '₺')
+                if cur == "USD":
+                    comm_txt = f"\n   💸 Komisyon: ~${x['commission']:,.2f} (%{x['commission_pct']:.1f})"
+                else:
+                    comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} ₺ (%{x['commission_pct']:.1f})"
                 if x["commission_pct"] >= 2.0:
                     comm_txt += " ⚠️ Yüksek!"
             qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Bütçe: <b>{x['amount']:,.0f}</b> → Net: <b>{x['net_amount']:,.0f}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
+                f"  💰 Bütçe: <b>{x['amount']:,.0f} ₺</b> → Net: <b>{x['net_amount']:,.0f} ₺</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "🛡️ Güvenli tarafta bugün fırsat yok. Nakitte beklemek de bir karardır."]
@@ -295,13 +300,17 @@ def pick_message(result: dict) -> str:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
             comm_txt = ""
             if x["commission"] > 0:
-                comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} {x.get('currency', '₺')} (%{x['commission_pct']:.1f})"
+                cur = x.get('currency', '₺')
+                if cur == "USD":
+                    comm_txt = f"\n   💸 Komisyon: ~${x['commission']:,.2f} (%{x['commission_pct']:.1f})"
+                else:
+                    comm_txt = f"\n   💸 Komisyon: ~{x['commission']:,.2f} ₺ (%{x['commission_pct']:.1f})"
                 if x["commission_pct"] >= 2.0:
                     comm_txt += " ⚠️ Yüksek!"
             qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Bütçe: <b>{x['amount']:,.0f}</b> → Net: <b>{x['net_amount']:,.0f}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
+                f"  💰 Bütçe: <b>{x['amount']:,.0f} ₺</b> → Net: <b>{x['net_amount']:,.0f} ₺</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "⚡ Riskli tarafta bugün fırsat yok, zorlama."]

@@ -176,11 +176,15 @@ def generate_evening_report(user_id: int) -> str:
     if sells:
         lines.append("🔴 <b>Satış Önerileri:</b>")
         for a in sells:
+            # Komisyon para birimi belirle
+            kind = md.kind_of(a.symbol)
+            cur = "$" if kind == "us" else "₺"
+            comm_val = a.broker_cost if kind == "us" else a.broker_cost
             lines.append(
                 f"  • <b>{a.symbol}</b> — {a.action}\n"
                 f"    Miktar: {a.qty_suggestion:.4f} @ ~{a.price_target:.2f}\n"
                 f"    Sebep: {a.reason}\n"
-                f"    Komisyon: ~{a.broker_cost:.2f} ₺"
+                f"    Komisyon: ~{comm_val:.2f} {cur}"
             )
     else:
         lines.append("🟢 <b>Satış önerisi yok</b> — Pozisyonlar koruma bandında.")
@@ -191,11 +195,14 @@ def generate_evening_report(user_id: int) -> str:
     if buys:
         lines.append("🟢 <b>Alım Fırsatları:</b>")
         for a in buys[:5]:  # En fazla 5
+            kind = md.kind_of(a.symbol)
+            cur = "$" if kind == "us" else "₺"
+            comm_val = a.broker_cost if kind == "us" else a.broker_cost
             lines.append(
                 f"  • <b>{a.symbol}</b> — {a.action}\n"
                 f"    Önerilen: {a.qty_suggestion:.4f} lot @ ~{a.price_target:.2f}\n"
                 f"    Sebep: {a.reason}\n"
-                f"    Komisyon: ~{a.broker_cost:.2f} ₺"
+                f"    Komisyon: ~{comm_val:.2f} {cur}"
             )
     else:
         lines.append("🔵 <b>Alım fırsatı yok</b> — Sinyaller zayıf veya nakit yetersiz.")
