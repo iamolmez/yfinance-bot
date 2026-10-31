@@ -1,14 +1,9 @@
 """Broker komisyon modelleri ve karşılaştırma.
 
-Desteklenen brokerlar:
-- Midast: $1.50/lot (US), ₺2.50/lot (BIST) + %0.1 spread
-- IsYatirim: $2.00/lot (US), ₺3.00/lot (BIST)
-- GarantiYatirim: $1.90/lot (US), ₺2.90/lot (BIST)
-- VakifYatirim: $1.80/lot (US), ₺2.70/lot (BIST)
-- DenizYatirim: $2.00/lot (US), ₺3.00/lot (BIST)
-- Komisyonsuz (BIST): ₺0 + %0.1 spread (sadece spread maliyeti)
+BIST: 0 komisyon
+US: $1.5 per trade (sabit)
+Kripto: 0 komisyon
 """
-
 from dataclasses import dataclass
 from typing import Optional
 from enum import Enum
@@ -24,167 +19,91 @@ class Market(Enum):
 class BrokerCommission:
     """Broker komisyon modeli."""
     name: str
-    # Sabit komisyon (lot başına)
-    fixed_per_lot_us: float = 0.0      # $/lot (US hisse)
-    fixed_per_lot_bist: float = 0.0    # ₺/lot (BIST)
-    fixed_per_lot_crypto: float = 0.0  # $/lot (Kripto)
-    
-    # Yüzdesel komisyon (işlem tutarının %)
-    pct_us: float = 0.0
-    pct_bist: float = 0.0
-    pct_crypto: float = 0.0
-    
-    # Minimum komisyon
-    min_us: float = 0.0
-    min_bist: float = 0.0
-    min_crypto: float = 0.0
-    
-    # Spread maliyeti (yüzde)
-    spread_pct: float = 0.0
+    # Sabit komisyon (işlem başına - lot değil!)
+    fixed_per_trade_us: float = 0.0      # $/trade (US hisse)
+    fixed_per_trade_bist: float = 0.0    # ₺/trade (BIST)
+    fixed_per_trade_crypto: float = 0.0  # $/trade (Kripto)
     
     # Aylık/ yıllık hesap ücreti
     monthly_fee: float = 0.0
     currency: str = "TRY"  # hesap ücreti para birimi
 
 
-# Tanımlı brokerlar
+# Tanımlı brokerlar - hepsi aynı: BIST=0, US=$1.5/trade
 BROKERS = {
     "midas": BrokerCommission(
         name="MİDAS",
-        fixed_per_lot_us=1.50,
-        fixed_per_lot_bist=2.50,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.0005,      # %0.05
-        pct_bist=0.0005,
-        pct_crypto=0.001,
-        min_us=1.50,
-        min_bist=2.50,
-        min_crypto=1.00,
-        spread_pct=0.0008,  # %0.08
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
     "isyatirim": BrokerCommission(
         name="İŞ YATIRIM",
-        fixed_per_lot_us=2.00,
-        fixed_per_lot_bist=3.00,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.001,
-        pct_bist=0.001,
-        pct_crypto=0.0015,
-        min_us=2.00,
-        min_bist=3.00,
-        min_crypto=2.00,
-        spread_pct=0.001,
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
     "garanti": BrokerCommission(
         name="GARANTİ YATIRIM",
-        fixed_per_lot_us=1.90,
-        fixed_per_lot_bist=2.90,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.0008,
-        pct_bist=0.0008,
-        pct_crypto=0.0012,
-        min_us=1.90,
-        min_bist=2.90,
-        min_crypto=1.50,
-        spread_pct=0.0009,
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
     "vakif": BrokerCommission(
         name="VAKIF YATIRIM",
-        fixed_per_lot_us=1.80,
-        fixed_per_lot_bist=2.70,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.0007,
-        pct_bist=0.0007,
-        pct_crypto=0.001,
-        min_us=1.80,
-        min_bist=2.70,
-        min_crypto=1.00,
-        spread_pct=0.0008,
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
     "deniz": BrokerCommission(
         name="DENİZ YATIRIM",
-        fixed_per_lot_us=2.00,
-        fixed_per_lot_bist=3.00,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.001,
-        pct_bist=0.001,
-        pct_crypto=0.0015,
-        min_us=2.00,
-        min_bist=3.00,
-        min_crypto=2.00,
-        spread_pct=0.001,
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
-    "komisyonsuz_bist": BrokerCommission(
-        name="KOMİSYONSUZ (Sadece Spread)",
-        fixed_per_lot_us=0.0,
-        fixed_per_lot_bist=0.0,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.0,
-        pct_bist=0.0,
-        pct_crypto=0.0,
-        min_us=0.0,
-        min_bist=0.0,
-        min_crypto=0.0,
-        spread_pct=0.0015,  # %0.15 spread
+    "komisyonsuz": BrokerCommission(
+        name="KOMİSYONSUZ (BIST)",
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
         monthly_fee=0,
         currency="TRY",
     ),
     "interactive_brokers": BrokerCommission(
-        name="Interactive Brokers (IBKR)",
-        fixed_per_lot_us=0.35,      # $0.35/lot (min $0.35, max %1)
-        fixed_per_lot_bist=0.0,
-        fixed_per_lot_crypto=0.0,
-        pct_us=0.0005,
-        pct_bist=0.0,
-        pct_crypto=0.001,
-        min_us=0.35,
-        min_bist=0.0,
-        min_crypto=0.50,
-        spread_pct=0.0003,
-        monthly_fee=0,  # $10/min ay (harcama <$100k ise)
+        name="INTERACTIVE BROKERS",
+        fixed_per_trade_us=1.50,
+        fixed_per_trade_bist=0.0,
+        fixed_per_trade_crypto=0.0,
+        monthly_fee=0,
         currency="USD",
     ),
 }
 
 
 def calculate_commission(broker_key: str, market: Market, qty: float, price: float, fx_rate: float = 1.0) -> float:
-    """İşlem için toplam komisyon hesaplar."""
+    """İşlem için toplam komisyon hesaplar (qty ve price kullanılmaz - işlem başına sabit)."""
     broker = BROKERS.get(broker_key.lower())
     if not broker:
         return 0.0
     
     if market == Market.US:
-        fixed = broker.fixed_per_lot_us * qty
-        pct = qty * price * broker.pct_us
-        min_comm = broker.min_us
-        spread = qty * price * broker.spread_pct
-        total_usd = max(fixed + pct, min_comm) + spread
-        return total_usd * fx_rate
+        return broker.fixed_per_trade_us * fx_rate
     
     elif market == Market.BIST:
-        fixed = broker.fixed_per_lot_bist * qty
-        pct = qty * price * broker.pct_bist
-        min_comm = broker.min_bist
-        spread = qty * price * broker.spread_pct
-        return max(fixed + pct, min_comm) + spread
+        return broker.fixed_per_trade_bist
     
     elif market == Market.CRYPTO:
-        fixed = broker.fixed_per_lot_crypto * qty
-        pct = qty * price * broker.pct_crypto
-        min_comm = broker.min_crypto
-        spread = qty * price * broker.spread_pct
-        total_usd = max(fixed + pct, min_comm) + spread
-        return total_usd * fx_rate
+        return broker.fixed_per_trade_crypto * fx_rate
     
     return 0.0
 

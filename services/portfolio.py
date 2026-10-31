@@ -57,8 +57,9 @@ def estimate_commission_for_symbol(sym: str, amount_try: float) -> dict:
     """
     Sembol için uygun komisyon hesaplar (TRY bütçesine göre).
     
-    US hisseleri için: TRY -> USD çevir, USD komisyonu hesapla, TRY'ye çevir
-    BIST/Kripto için: Doğrudan TRY'de hesapla
+    BIST: 0 komisyon
+    US: $1.5 per trade (sabit)
+    Kripto: 0 komisyon
     
     Returns: {"commission_try": float, "commission_usd": float, "currency": "USD|TRY", "commission_pct": float}
     """
@@ -73,14 +74,13 @@ def estimate_commission_for_symbol(sym: str, amount_try: float) -> dict:
     usd_try = md.get_fx_rate("TRY=X") or 32.0
     
     if cur == "USD":
-        # US hisse: TRY bütçesini USD'ye çevir
-        amount_usd = amount_try / usd_try
-        commission_usd = estimate_commission(amount_usd, rate=0.001, min_commission=1.0)
+        # US hisse: $1.5 flat per trade
+        commission_usd = 1.5
         commission_try = commission_usd * usd_try
     else:
-        # BIST/Kripto: Doğrudan TRY'de hesapla
-        commission_try = estimate_commission(amount_try, rate=0.001, min_commission=5.0)
-        commission_usd = commission_try / usd_try
+        # BIST/Kripto: 0 komisyon
+        commission_try = 0.0
+        commission_usd = 0.0
     
     commission_pct = (commission_try / amount_try * 100) if amount_try > 0 else 0.0
     
