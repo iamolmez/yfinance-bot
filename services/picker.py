@@ -118,15 +118,27 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
     
     # Fiyat kontrolü - 0 veya çok düşükse fallback
     if price <= 0:
-        # Varsayılan fiyatlar (son bilinen yaklaşık değerler)
-        fallback_prices = {
+        # Varsayılan fiyatlar (USD cinsinden - son bilinen yaklaşık değerler)
+        fallback_prices_usd = {
             "TSLA": 250.0, "AAPL": 180.0, "MSFT": 400.0, "NVDA": 900.0,
             "AMD": 150.0, "META": 500.0, "NFLX": 600.0,
-            "BTC-USD": 65000.0, "ETH-USD": 3500.0,
+            "GOOGL": 140.0, "AMZN": 150.0, "META": 500.0,
+            "BTC-USD": 65000.0, "ETH-USD": 3500.0, "SOL-USD": 150.0,
+            "XRP-USD": 0.6, "DOGE-USD": 0.15,
         }
-        price = fallback_prices.get(sym, 100.0)
+        price = fallback_prices_usd.get(sym, 100.0)
     
     cur = "USD" if kind == "us" else ("TRY" if kind == "bist" else "USD")
+    
+    # BIST için fiyatı TRY'ye çevir (fallback USD fiyatını TRY'ye çevir)
+    if cur == "TRY" and kind == "us":
+        # Bu durum olmamalı ama güvenlik için
+        usd_try = md.get_fx_rate("TRY=X") or 32.0
+        price = price * usd_try
+    elif cur == "USD" and kind == "bist":
+        # BIST hisse USD olarak gelmişse TRY'ye çevir
+        usd_try = md.get_fx_rate("TRY=X") or 32.0
+        price = price / usd_try
     
     if amount_try <= 0:
         return {"price": price, "commission": 0.0, "qty": 0.0, "net_amount": 0.0, "commission_pct": 0.0, "currency": cur}
