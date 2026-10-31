@@ -136,6 +136,10 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
     else:
         qty = calculate_qty_from_amount(amount_try, price, commission)
     
+    # BIST hisseler için TAM SAYI lot (1, 2, 3, 5, 10, 20... küsürat yok)
+    if kind == "bist":
+        qty = max(1, int(round(qty)))
+    
     return {
         "price": price,
         "commission": commission,
