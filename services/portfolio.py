@@ -53,6 +53,45 @@ def estimate_commission(value: float, rate: float = 0.001, min_commission: float
     return max(value * rate, min_commission)
 
 
+def estimate_commission_for_symbol(sym: str, amount_try: float) -> dict:
+    """
+    Sembol için uygun komisyon hesaplar (TRY bütçesine göre).
+    
+    US hisseleri için: TRY -> USD çevir, USD komisyonu hesapla, TRY'ye çevir
+    BIST/Kripto için: Doğrudan TRY'de hesapla
+    
+    Returns: {"commission_try": float, "commission_usd": float, "currency": "USD|TRY", "commission_pct": float}
+    """
+    from services import market_data as md
+    
+    kind = md.kind_of(sym)
+    cur = "USD" if kind == "us" else ("TRY" if kind == "bist" else "USD")
+    
+    if amount_try <= 0:
+        return {"commission_try": 0.0, "commission_usd": 0.0, "currency": cur, "commission_pct": 0.0}
+    
+    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    
+    if cur == "USD":
+        # US hisse: TRY bütçesini USD'ye çevir
+        amount_usd = amount_try / usd_try
+        commission_usd = estimate_commission(amount_usd, rate=0.001, min_commission=1.0)
+        commission_try = commission_usd * usd_try
+    else:
+        # BIST/Kripto: Doğrudan TRY'de hesapla
+        commission_try = estimate_commission(amount_try, rate=0.001, min_commission=5.0)
+        commission_usd = commission_try / usd_try
+    
+    commission_pct = (commission_try / amount_try * 100) if amount_try > 0 else 0.0
+    
+    return {
+        "commission_try": commission_try,
+        "commission_usd": commission_usd,
+        "currency": cur,
+        "commission_pct": commission_pct,
+    }
+
+
 def _compute_positions(user_id: int) -> dict[str, Position]:
     """Islem gecmisinden mevcut pozisyonlari FIFO ile hesaplar (komisyon dahil)."""
     txns = get_transactions(user_id)

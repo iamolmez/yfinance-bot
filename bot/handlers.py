@@ -635,16 +635,19 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
         if second_param is not None and second_param > 0:
             if kind == "us" and cur == "USD":
                 # US hisse: 2. parametre = dolar tutarı (örn: 1000 = $1000 değerinde al)
-                from services.portfolio import calculate_qty_from_amount, estimate_commission
+                from services.portfolio import calculate_qty_from_amount, estimate_commission_for_symbol
                 if commission == 0.0:
-                    commission = estimate_commission(second_param)
+                    comm_info = estimate_commission_for_symbol(sym, second_param)
+                    commission = comm_info["commission_usd"]
+                    commission_pct = comm_info["commission_pct"]
+                else:
+                    commission_pct = (commission / second_param * 100) if second_param > 0 else 0
                 qty = calculate_qty_from_amount(second_param, price, commission)
                 if qty <= 0:
                     await update.message.reply_text("❌ Komisyon tutarından büyük olmalı.")
                     return
                 
                 # Komisyon analizi
-                commission_pct = (commission / second_param * 100) if second_param > 0 else 0
                 net_amount = second_param - commission
                 worth_it = commission_pct < 1.0
                 
@@ -681,8 +684,11 @@ async def cmd_trade(update: Update, context: ContextTypes.DEFAULT_TYPE, side: st
                 qty = second_param
                 total_value = qty * price
                 if commission == 0.0:
-                    commission = estimate_commission(total_value, rate=0.001, min_commission=5.0)  # BIST min ~5 TL
-                commission_pct = (commission / total_value * 100) if total_value > 0 else 0
+                    comm_info = estimate_commission_for_symbol(sym, total_value)
+                    commission = comm_info["commission_try"]
+                    commission_pct = comm_info["commission_pct"]
+                else:
+                    commission_pct = (commission / total_value * 100) if total_value > 0 else 0
                 worth_it = commission_pct < 1.0
                 
                 # KORUMA: Çok küçük işlem engelle
