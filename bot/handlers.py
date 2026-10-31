@@ -1358,33 +1358,61 @@ async def respond_nlp(update: Update, parsed: dict) -> bool:
 
 @restricted
 async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/nakit [TUTAR] — eldeki nakdi gosterir veya ayarlar."""
+    """/nakit [TUTAR] — eldeki nakdi gosterir veya ayarlar (TRY varsayılan).
+    /nakit 5000       -> TRY 5000 ayarla
+    /nakit 1000 USD   -> USD 1000 ayarla"""
     user = update.effective_user
-    arg = _arg(context, 0)
-    if arg:
-        val = parse_number(arg)
+    args = context.args
+    if args:
+        val = parse_number(args[0])
         if val is None or val < 0:
-            await update.message.reply_text("❌ Geçersiz tutar. Örn: <code>/nakit 20000</code>")
+            await update.message.reply_text("❌ Geçersiz tutar. Örn: <code>/nakit 20000</code> veya <code>/nakit 1000 USD</code>")
             return
-        balance = await to_thread(set_cash, user.id, val)
+        currency = args[1].upper() if len(args) > 1 else "TRY"
+        if currency not in ("TRY", "USD"):
+            await update.message.reply_text("❌ Para birimi TRY veya USD olmalı.")
+            return
+        balance = await to_thread(set_cash, user.id, val, currency)
         await update.message.reply_text(
-            f"[PARA] Nakit bakiyen <b>{balance:,.2f} ₺</b> olarak ayarlandı.\n"
+            f"[PARA] Nakit bakiyen <b>{balance:,.2f} {currency}</b> olarak ayarlandı.\n"
             "Bundan sonra maaş/harcama/alım/satışlar otomatik güncellenir."
         )
         return
 
-    cash = await to_thread(get_cash, user.id)
+    cash_by_cur = await to_thread(get_all_cash, user.id)
     pf = await to_thread(portfolio.get_portfolio, user.id)
     invested = sum(p.market_value for p in pf["positions"])
-    total = cash + invested
+    
+    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    cash_try = cash_by_cur.get("TRY", 0.0)
+    cash_usd = cash_by_cur.get("USD", 0.0)
+    cash_total_try = cash_try + cash_usd * usd_try
+    
     lines = [
-        "[PARA] <b>Eldeki Para Durumu</b>",
-        f"💵 Nakit: <b>{cash:,.2f} ₺</b>",
-        f"[ARTIS] Yatırımlar: {invested:,.2f} ₺ ({len(pf['positions'])} pozisyon)",
-        f"🏦 Toplam servet: <b>{total:,.2f} ₺</b>",
+        "[PARA] <b>Eldeki Nakit (Çok Para Birimli)</b>",
     ]
-    if total <= 0:
-        lines.append("İlk bakiyeni gir: <code>/nakit 20000</code>")
+    if cash_by_cur:
+        if cash_try:
+            lines.append(f"💵 TRY: <b>{cash_try:,.2f} ₺</b>")
+        if cash_usd:
+            lines.append(f"$ USD: <b>{cash_usd:,.2f}</b> ≈ ₺ {cash_usd * usd_try:,.2f}")
+        lines.append(f"💰 <b>Toplam Nakit: ₺ {cash_total_try:,.2f}</b>")
+    else:
+        lines.append("💵 Nakit: <b>0 ₺</b>")
+    
+    if pf["positions"]:
+        invested_try = 0.0
+        for cur, total in pf["total_by_currency"].items():
+            if cur == "TRY":
+                invested_try += total
+            elif cur == "USD":
+                invested_try += total * usd_try
+        lines.append(f"[ARTIS] Yatırımlar: ₺ {invested_try:,.2f} ({len(pf['positions'])} pozisyon)")
+        lines.append(f"🏦 <b>Toplam servet: ₺ {cash_total_try + invested_try:,.2f}</b>")
+    else:
+        lines.append("💼 Portföy boş.")
+    
+    lines.append("\nAyarla: <code>/nakit 20000</code> veya <code>/nakit 1000 USD</code>")
     lines.append("Dağılımı dengelemek için: /dengele")
     await update.message.reply_text("\n".join(lines))
 
