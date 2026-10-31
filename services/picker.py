@@ -12,7 +12,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from services import market_data as md, signals
-from services.portfolio import estimate_commission, calculate_qty_from_amount
+from services.portfolio import estimate_commission_for_symbol, calculate_qty_from_amount
 
 # Her zaman taranacak aday havuzlari
 SAFE_POOL = [
@@ -121,24 +121,20 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
     if amount_try <= 0:
         return {"price": price, "commission": 0.0, "qty": 0.0, "net_amount": 0.0, "commission_pct": 0.0, "currency": cur}
     
-    # USD/TRY kuru
-    usd_try = md.get_fx_rate("TRY=X") or 32.0
+    # Unified commission calculation (BIST=0, US=$1.5, Crypto=0)
+    comm_info = estimate_commission_for_symbol(sym, amount_try)
+    commission = comm_info["commission_try"]
+    commission_pct = comm_info["commission_pct"]
+    currency = comm_info["currency"]
     
-    # Komisyon tahmini - para birimine göre
-    if cur == "USD":
-        # TRY bütçesini USD'ye çevir, komisyon USD'de hesapla
-        amount_usd = amount_try / usd_try
-        commission_usd = estimate_commission(amount_usd, rate=0.001, min_commission=1.0)
-        commission = commission_usd * usd_try  # TRY'ye çevir
-        net_amount = amount_try - commission
-        qty = calculate_qty_from_amount(amount_usd, price / usd_try, commission_usd)
+    net_amount = amount_try - commission
+    
+    # Qty hesapla
+    if currency == "USD":
+        usd_try = md.get_fx_rate("TRY=X") or 32.0
+        qty = calculate_qty_from_amount(amount_try / usd_try, price / usd_try, comm_info["commission_usd"])
     else:
-        # BIST: doğrudan TRY'de hesapla
-        commission = estimate_commission(amount_try, rate=0.001, min_commission=5.0)
-        net_amount = amount_try - commission
         qty = calculate_qty_from_amount(amount_try, price, commission)
-    
-    commission_pct = (commission / amount_try * 100) if amount_try > 0 else 0.0
     
     return {
         "price": price,
@@ -146,8 +142,7 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
         "qty": qty,
         "net_amount": net_amount,
         "commission_pct": commission_pct,
-        "currency": cur,
-        "currency": cur,
+        "currency": currency,
     }
 
 
