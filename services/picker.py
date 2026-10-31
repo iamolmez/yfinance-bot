@@ -116,6 +116,16 @@ def _get_symbol_info(sym: str, amount_try: float) -> dict:
     except Exception:
         price = 0.0
     
+    # Fiyat kontrolü - 0 veya çok düşükse fallback
+    if price <= 0:
+        # Varsayılan fiyatlar (son bilinen yaklaşık değerler)
+        fallback_prices = {
+            "TSLA": 250.0, "AAPL": 180.0, "MSFT": 400.0, "NVDA": 900.0,
+            "AMD": 150.0, "META": 500.0, "NFLX": 600.0,
+            "BTC-USD": 65000.0, "ETH-USD": 3500.0,
+        }
+        price = fallback_prices.get(sym, 100.0)
+    
     cur = "USD" if kind == "us" else ("TRY" if kind == "bist" else "USD")
     
     if amount_try <= 0:
@@ -187,8 +197,29 @@ def pick(plan: dict, portfolio_positions: list, cash: float = 0.0) -> dict:
     safe_scores = safe_scores[:2]
     risky_scores = risky_scores[:2]
 
+    # Minimum bütçe per hisse (TRY) - anlamsız küçük tutarları engelle
+    MIN_BUDGET_PER_STOCK = 500.0  # ~$15 minimum
+    
     safe_amts = _amounts(safe_scores, safe_budget)
     risky_amts = _amounts(risky_scores, risky_budget)
+
+    # Çok küçük tutarları filtrele ve kalan bütçeyi yeniden dağıt
+    def _filter_and_redistribute(amts: dict, scores: list, budget: float) -> dict:
+        filtered = {s: a for s, a in amts.items() if a >= MIN_BUDGET_PER_STOCK}
+        if not filtered:
+            return {}
+        # Kalan bütçeyi geçerli skorlara yeniden dağıt
+        remaining_scores = [s for s in scores if s["symbol"] in filtered]
+        total_score = sum(max(s["score"], 1) for s in remaining_scores)
+        if total_score <= 0:
+            return filtered
+        return {
+            s["symbol"]: round(budget * max(s["score"], 1) / total_score, 2)
+            for s in remaining_scores
+        }
+
+    safe_amts = _filter_and_redistribute(safe_amts, safe_scores, safe_budget)
+    risky_amts = _filter_and_redistribute(risky_amts, risky_scores, risky_budget)
 
     safe = []
     for s in safe_scores:
