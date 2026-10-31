@@ -275,7 +275,13 @@ def pick_message(result: dict) -> str:
 
     def _fmt_budget(x: dict, usd_try: float) -> tuple[str, str]:
         """Bütçe ve net tutarı doğru para biriminde formatla."""
-        cur = x.get('currency', '₺')
+        # Para birimini belirle: currency alanından veya sembol kind'ından
+        cur = x.get('currency', '')
+        if not cur:
+            # Fallback: sembol kind'ından belirle
+            from services import market_data as md
+            cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
+        
         if cur == "USD":
             # USD hisse: TRY bütçesini USD'ye çevir
             amount_usd = x['amount'] / usd_try
@@ -292,7 +298,11 @@ def pick_message(result: dict) -> str:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
             comm_txt = ""
             if x["commission"] > 0:
-                cur = x.get('currency', '₺')
+                # Para birimini belirle: currency alanından veya sembol kind'ından
+                cur = x.get('currency', '')
+                if not cur:
+                    from services import market_data as md
+                    cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
                 if cur == "USD":
                     comm_val = x.get('commission_usd', x['commission'])
                     comm_txt = f"\n   💸 Komisyon: ~${comm_val:,.2f} (%{x['commission_pct']:.1f})"
@@ -316,7 +326,11 @@ def pick_message(result: dict) -> str:
             held_txt = f"\n   📌 Zaten {x['held']:,.0f} ₺ var" if x["held"] else ""
             comm_txt = ""
             if x["commission"] > 0:
-                cur = x.get('currency', '₺')
+                # Para birimini belirle: currency alanından veya sembol kind'ından
+                cur = x.get('currency', '')
+                if not cur:
+                    from services import market_data as md
+                    cur = "USD" if md.kind_of(x['symbol']) == "us" else "TRY"
                 if cur == "USD":
                     comm_val = x.get('commission_usd', x['commission'])
                     comm_txt = f"\n   💸 Komisyon: ~${comm_val:,.2f} (%{x['commission_pct']:.1f})"
