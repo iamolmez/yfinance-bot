@@ -340,10 +340,11 @@ def pick_message(result: dict) -> str:
                 if x["commission_pct"] >= 2.0:
                     comm_txt += " ⚠️ Yüksek!"
             qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
+            price_txt = f"\n   💲 Fiyat: ~${x['price']:,.2f}" if x.get('currency') == 'USD' else f"\n   💲 Fiyat: ~{x['price']:,.2f} ₺" if x.get('price', 0) > 0 else ""
             amt_str, net_str = _fmt_budget(x, usd_try)
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Bütçe: <b>{amt_str}</b> → Net: <b>{net_str}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
+                f"  💰 Bütçe: <b>{amt_str}</b> → Net: <b>{net_str}</b>{price_txt} — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "🛡️ Güvenli tarafta bugün fırsat yok. Nakitte beklemek de bir karardır."]
@@ -367,10 +368,11 @@ def pick_message(result: dict) -> str:
                 if x["commission_pct"] >= 2.0:
                     comm_txt += " ⚠️ Yüksek!"
             qty_txt = f"\n   📦 Lot: ~{x['qty']:.4f}" if x.get("qty", 0) > 0 else ""
+            price_txt = f"\n   💲 Fiyat: ~${x['price']:,.2f}" if x.get('currency') == 'USD' else f"\n   💲 Fiyat: ~{x['price']:,.2f} ₺" if x.get('price', 0) > 0 else ""
             amt_str, net_str = _fmt_budget(x, usd_try)
             lines.append(
                 f"• <b>{x['symbol']}</b> — {x['signal']} (skor {x['score']:+d})\n"
-                f"  💰 Bütçe: <b>{amt_str}</b> → Net: <b>{net_str}</b> — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
+                f"  💰 Bütçe: <b>{amt_str}</b> → Net: <b>{net_str}</b>{price_txt} — {x['reason']}{held_txt}{comm_txt}{qty_txt}"
             )
     else:
         lines += ["", "⚡ Riskli tarafta bugün fırsat yok, zorlama."]
